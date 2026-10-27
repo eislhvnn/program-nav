@@ -140,26 +140,26 @@ class InstallCancelled(Exception):
     pass
 
 
-def download_with_progress(url, dest):
-    """分块下载，实时更新进度；卡住、超时或取消时删掉下了一半的文件"""
+def download_with_progress(url, dest, state=None):
+    """分块下载，把进度写进 state（默认是 Everything 安装的状态）；卡住、超时或取消时删掉下了一半的文件"""
     import time
     import urllib.request
 
+    state = install_state if state is None else state
     part = dest.with_name(dest.name + ".part")
     try:
         with urllib.request.urlopen(url, timeout=EV_STALL) as r, open(part, "wb") as f:
             total = int(r.headers.get("Content-Length") or 0)
             done, start = 0, time.time()
             while chunk := r.read(64 * 1024):  # 超过 EV_STALL 秒没数据会抛 TimeoutError
-                if install_state["cancel"]:
+                if state["cancel"]:
                     raise InstallCancelled
                 if time.time() - start > EV_MAX_TIME:
                     raise TimeoutError("total")
                 f.write(chunk)
                 done += len(chunk)
                 mb = f"{done / 1048576:.1f}" + (f" / {total / 1048576:.1f}" if total else "") + " MB"
-                install_state.update(msg=f"正在下载 {dest.name}　{mb}",
-                                     pct=done * 100 // total if total else None)
+                state.update(msg=f"正在下载 {dest.name}　{mb}", pct=done * 100 // total if total else None)
         if total and done < total:
             raise ConnectionError("下载不完整，连接中途断开了")
         part.replace(dest)
@@ -235,6 +235,125 @@ def install_everything():
         step("done", "Everything 已安装并启动")
     except Exception as e:
         step("error", f"安装失败：{e}")
+
+
+# 程序内更新：从 GitHub 仓库最新的 Release 下载安装包 → 静默安装 → 安装程序自动把它重新打开
+# 仓库是私有的，借用这台电脑上 gh（或 Git 凭据管理器）已经登录的凭据，程序里不保存任何密钥
+GITHUB_REPO = "eislhvnn/program-nav"
+VERSION_FILE = RES / "version.txt"
+APP_VERSION = VERSION_FILE.read_text(encoding="utf-8").strip() if VERSION_FILE.exists() else "0"
+update_state = {"step": "idle", "msg": "", "pct": None, "cancel": False}
+
+
+class UpdateError(Exception):
+    pass
+
+
+def github_token():
+    """先问 gh，再问 Git 凭据管理器；都没登录就返回 None（不会弹登录窗口）"""
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "never"}
+    for cmd, stdin in ((["gh", "auth", "token"], None),
+                       (["git", "credential", "fill"], "protocol=https\nhost=github.com\n\n")):
+        try:
+            r = subprocess.run(cmd, input=stdin, capture_output=True, text=True, timeout=10, env=env,
+                               creationflags=subprocess.CREATE_NO_WINDOW)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        out = r.stdout.strip() if r.returncode == 0 else ""
+        if cmd[0] == "git":
+            out = dict(line.split("=", 1) for line in out.splitlines() if "=" in line).get("password", "")
+        if out:
+            return out
+    return None
+
+
+def github_get(path, token, accept="application/vnd.github+json", follow=True):
+    import urllib.request
+
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs):
+            return None  # 下载安装包时 GitHub 会跳转到存储服务器，那一步不能带上登录凭据，要自己处理
+
+    req = urllib.request.Request("https://api.github.com" + path, headers={
+        "Authorization": f"Bearer {token}", "Accept": accept, "User-Agent": "program-nav",
+        "X-GitHub-Api-Version": "2022-11-28"})
+    opener = urllib.request.build_opener() if follow else urllib.request.build_opener(NoRedirect)
+    return opener.open(req, timeout=15)
+
+
+def version_key(v):
+    import re
+
+    return tuple(int(x) for x in re.findall(r"\d+", v)[:4])
+
+
+def latest_release():
+    """返回 {latest, newer, notes, date, asset}；失败时抛 UpdateError，消息直接给用户看"""
+    import urllib.error
+
+    token = github_token()
+    if not token:
+        raise UpdateError("这台电脑没有登录 GitHub，读不到私有仓库。请先在命令行运行 gh auth login 登录")
+    try:
+        rel = json.load(github_get(f"/repos/{GITHUB_REPO}/releases/latest", token))
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            raise UpdateError("GitHub 登录已失效，请在命令行运行 gh auth login 重新登录")
+        if e.code == 404:
+            raise UpdateError("没有找到发布的版本：仓库里还没有 Release，或者当前登录的账号没有这个仓库的权限")
+        raise UpdateError(f"GitHub 返回错误 {e.code}")
+    except (urllib.error.URLError, TimeoutError) as e:
+        raise UpdateError(f"连不上 GitHub（{getattr(e, 'reason', e)}），请检查网络")
+    asset = next((a for a in rel.get("assets", []) if a["name"].lower().endswith(".exe")), None)
+    latest = rel["tag_name"].lstrip("vV")
+    return {"latest": latest, "newer": bool(asset) and version_key(latest) > version_key(APP_VERSION),
+            "notes": rel.get("body") or "", "date": (rel.get("published_at") or "")[:10], "asset": asset}
+
+
+def run_update():
+    import tempfile
+    import urllib.error
+
+    def step(s, msg):
+        update_state.update(step=s, msg=msg, pct=None)
+
+    try:
+        step("download", "正在获取最新版本…")
+        rel = latest_release()
+        asset = rel["asset"]
+        if not rel["newer"]:
+            return step("error", "已经是最新版本，不需要更新")
+        token = github_token()
+        try:  # 用登录凭据换到真正的下载地址（一个有时效的临时链接）
+            github_get(f"/repos/{GITHUB_REPO}/releases/assets/{asset['id']}", token,
+                       accept="application/octet-stream", follow=False)
+            raise UpdateError("没有拿到下载地址")
+        except urllib.error.HTTPError as e:
+            if e.code not in (301, 302, 303, 307, 308):
+                raise UpdateError(f"获取下载地址失败（{e.code}）")
+            url = e.headers["Location"]
+        setup = Path(tempfile.gettempdir()) / asset["name"]
+        try:
+            download_with_progress(url, setup, update_state)
+        except InstallCancelled:
+            return step("error", "已取消下载，下了一半的文件已删除")
+        except TimeoutError:
+            return step("error", "下载超时，下了一半的文件已删除。请检查网络后重试")
+        except urllib.error.URLError as e:
+            return step("error", f"下载失败（{e.reason}），请检查网络后重试")
+        if setup.stat().st_size != asset["size"]:
+            setup.unlink(missing_ok=True)
+            return step("error", "下载的文件大小不对，已删除，请重试")
+
+        step("install", f"下载完成，正在安装 {rel['latest']}。程序导航会自动关闭，装好后自动重新打开")
+        # 用 cmd 的 start 转一手，让安装程序不在本程序的进程树里：安装程序会结束本程序及其子进程，否则会把自己也结束掉
+        subprocess.Popen(["cmd", "/c", "start", "", str(setup), "/VERYSILENT", "/SUPPRESSMSGBOXES",
+                          "/CLOSEAPPLICATIONS", "/NORESTART", "/RELAUNCH=1"],
+                         creationflags=subprocess.CREATE_NO_WINDOW)
+    except UpdateError as e:
+        step("error", str(e))
+    except Exception as e:
+        step("error", f"更新失败：{e}")
 
 
 # 从文件里读取 Windows 图标，缓存成 PNG
@@ -1004,6 +1123,28 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/install-cancel":
                 install_state["cancel"] = True  # 只在下载阶段有效，下载循环会自己停下
                 self.send_json(install_state)
+            elif self.path == "/api/version":
+                # 源码运行时（开发中）不提供程序内更新，免得把安装版装到正在调试的环境上
+                self.send_json({"version": APP_VERSION, "canUpdate": FROZEN, "repo": GITHUB_REPO})
+            elif self.path == "/api/update/check":
+                try:
+                    rel = latest_release()
+                except UpdateError as e:
+                    return self.send_json({"error": str(e)}, 400)
+                asset = rel.pop("asset")  # 里面有下载用的内部信息，页面只需要大小
+                self.send_json({**rel, "size": asset["size"] if asset else 0, "current": APP_VERSION})
+            elif self.path == "/api/update/start":
+                if not FROZEN:
+                    return self.send_json({"error": "源码运行中，请用项目文件夹里的「更新.bat」"}, 400)
+                if update_state["step"] in ("idle", "error"):
+                    update_state.update(step="download", msg="准备中…", pct=None, cancel=False)
+                    threading.Thread(target=run_update, daemon=True).start()
+                self.send_json(update_state)
+            elif self.path == "/api/update/status":
+                self.send_json(update_state)
+            elif self.path == "/api/update/cancel":
+                update_state["cancel"] = True
+                self.send_json(update_state)
             else:
                 self.send_json({"error": "not found"}, 404)
         except Exception as e:  # 把错误显示到页面上

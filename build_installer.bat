@@ -4,7 +4,7 @@ rem Build ProgramNav: 1) package exe with PyInstaller  2) compile installer with
 cd /d "%~dp0"
 
 ".venv\Scripts\python.exe" -m PyInstaller --noconfirm --windowed --name "程序导航" ^
-  --icon "%~dp0app.ico" --add-data "%~dp0index.html;." --add-data "%~dp0lib\Everything64.dll;lib" ^
+  --icon "%~dp0app.ico" --add-data "%~dp0index.html;." --add-data "%~dp0version.txt;." --add-data "%~dp0lib\Everything64.dll;lib" ^
   --hidden-import pystray._win32 --distpath "%~dp0build\release" --workpath "%~dp0build\work-release" ^
   --specpath "%~dp0build" "%~dp0main.py"
 if errorlevel 1 goto :fail

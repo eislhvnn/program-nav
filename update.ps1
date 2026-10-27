@@ -34,7 +34,7 @@ if ($LASTEXITCODE) { Fail '安装依赖失败，检查网络后重试' }
 Step '打包（约 1 分钟）'
 & cmd /c "`"$PSScriptRoot\build_installer.bat`""
 if ($LASTEXITCODE) { Fail '打包失败，看上面的输出' }
-$ver = [regex]::Match((Get-Content installer.iss -Raw -Encoding UTF8), '#define AppVersion "([^"]+)"').Groups[1].Value
+$ver = (Get-Content version.txt -Raw).Trim()
 $setup = "build\installer\程序导航-安装程序-$ver.exe"
 if (-not (Test-Path $setup)) { Fail "找不到安装包 $setup" }
 

@@ -3,7 +3,11 @@
 ; 装到当前用户的 AppData\Local\Programs 下：不需要管理员权限，程序也能在自己旁边保存数据
 
 #define AppName "程序导航"
-#define AppVersion "1.0.4"
+; 版本号只在 version.txt 里改，程序和安装包都从那里读
+#define VerFile FileOpen(AddBackslash(SourcePath) + "version.txt")
+#define AppVersion Trim(FileRead(VerFile))
+#expr FileClose(VerFile)
+#undef VerFile
 #define AppExe "程序导航.exe"
 
 [Setup]
@@ -56,6 +60,8 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: 
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "立即运行 {#AppName}"; Flags: nowait postinstall skipifsilent
+; 程序内更新时带 /RELAUNCH=1 静默安装，装完自动重新打开
+Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; Flags: nowait; Check: IsRelaunch
 
 [UninstallDelete]
 ; 只删缓存；程序列表、分类、设置、自定义图标这些个人数据保留
@@ -77,6 +83,11 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   CloseRunningApp();
   Result := '';
+end;
+
+function IsRelaunch(): Boolean;
+begin
+  Result := ExpandConstant('{param:RELAUNCH|0}') = '1';
 end;
 
 function EverythingPath(): String;

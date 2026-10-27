@@ -24,7 +24,21 @@ body { margin: 0; background: var(--bg); color: var(--ink);
 button { font: inherit; color: inherit; cursor: pointer; }
 .app { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
 
-aside { border-right: 1px solid var(--line); padding: 20px 12px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+aside { border-right: 1px solid var(--line); padding: 20px 12px 12px; position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  display: flex; flex-direction: column; }
+#cats { flex: 1; }
+.side-foot { display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: none; margin-top: 12px;
+  padding: 8px 10px; border-radius: 7px; color: var(--muted); font-size: 13px; text-align: left; }
+.side-foot:hover { background: var(--line); color: var(--ink); }
+.side-foot small { margin-left: auto; font: 11px var(--mono); }
+.side-foot .new { width: 7px; height: 7px; border-radius: 50%; background: var(--danger); display: none; }
+.side-foot.has-new .new { display: inline-block; }
+.set-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.set-row span { color: var(--muted); }
+.upd { margin-top: 16px; padding: 14px; border-radius: 10px; background: var(--bg); line-height: 1.8; }
+.upd pre { white-space: pre-wrap; font: 12px/1.6 inherit; color: var(--muted); margin: 6px 0 0; max-height: 160px; overflow-y: auto; }
+.upd .bar-track { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin: 8px 0; }
+.upd .bar-track div { height: 100%; background: var(--accent); transition: width .3s; }
 .brand { font-size: 18px; font-weight: 700; padding: 0 10px 16px; letter-spacing: .5px; }
 .brand small { display: block; font-size: 12px; font-weight: 400; color: var(--muted); }
 .cat { display: flex; justify-content: space-between; width: 100%; border: 0; background: none;
@@ -229,6 +243,7 @@ dialog.wide { width: min(780px, 94vw); }
   <aside>
     <div class="brand">程序导航<small>我电脑上的一切</small></div>
     <div id="cats"></div>
+    <button class="side-foot" id="setBtn" title="设置和更新">⚙ 设置<i class="new"></i><small id="verTag"></small></button>
   </aside>
   <main>
     <div class="bar">
@@ -338,6 +353,18 @@ dialog.wide { width: min(780px, 94vw); }
       <span id="pickCount" style="margin-right:auto;color:var(--muted);font-size:13px;align-self:center"></span>
       <button type="button" class="btn" id="pickCancel">取消</button>
       <button type="button" class="btn primary" id="pickOk">确定</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="settings" style="width:min(480px,94vw)">
+  <form method="dialog">
+    <h3>设置</h3>
+    <div class="set-row"><b>当前版本</b><span id="setVer"></span></div>
+    <div class="set-row"><b>更新来源</b><span id="setRepo" style="font:12px var(--mono)"></span></div>
+    <div class="upd" id="updBox"></div>
+    <div class="foot">
+      <button type="button" class="btn" id="setClose">关闭</button>
     </div>
   </form>
 </dialog>
@@ -955,6 +982,60 @@ async function pollRunning() {
 }
 setInterval(pollRunning, 3000);
 document.addEventListener("visibilitychange", pollRunning);
+
+// ── 设置 / 程序内更新（从 GitHub Release 下载安装包，装好后自动重启）──
+let ver = { version: "", canUpdate: false, repo: "" };
+const updBox = $("#updBox");
+const mb = n => (n / 1048576).toFixed(1) + " MB";
+function showUpd(html) { updBox.innerHTML = html; }
+async function checkUpdate(silent) {
+  if (!silent) showUpd("⏳ 正在检查更新…");
+  try {
+    const r = await api("/api/update/check", {});
+    $("#setBtn").classList.toggle("has-new", r.newer);
+    if (silent) return;
+    if (!r.newer) return showUpd(`✓ 已经是最新版本<br><button type="button" class="btn" id="updCheck">重新检查</button>`);
+    showUpd(`<b>发现新版本 ${esc(r.latest)}</b>　<span style="color:var(--muted)">${esc(r.date)} · ${mb(r.size)}</span>
+      ${r.notes ? `<pre>${esc(r.notes)}</pre>` : ""}
+      <div style="margin-top:10px">${ver.canUpdate
+        ? `<button type="button" class="btn primary" id="updGo">立即更新</button>
+           <div style="font-size:12px;color:var(--muted);margin-top:6px">下载后静默安装，程序导航会自动关闭再重新打开，你的程序列表不受影响</div>`
+        : `<span style="color:var(--warn)">现在是源码运行，请用项目文件夹里的「更新.bat」更新</span>`}</div>`);
+  } catch (e) {
+    if (!silent) showUpd(`<span style="color:var(--danger)">⚠ ${esc(e.message)}</span><br><button type="button" class="btn" id="updCheck">重新检查</button>`);
+  }
+}
+async function startUpdate() {
+  try {
+    let s = await api("/api/update/start", {});
+    while (s.step === "download") {
+      showUpd(`⏳ ${esc(s.msg)}${s.pct != null ? `<div class="bar-track"><div style="width:${s.pct}%"></div></div>` : "<br>"}
+        <button type="button" class="btn" id="updCancel">取消</button>`);
+      await new Promise(r => setTimeout(r, 700));
+      s = await api("/api/update/status", {});
+    }
+    if (s.step === "error") return showUpd(`<span style="color:var(--danger)">⚠ ${esc(s.msg)}</span><br>
+      <button type="button" class="btn" id="updCheck">重新检查</button>`);
+    showUpd(`⏳ ${esc(s.msg)}`);  // 接下来安装程序会结束本程序，页面也就跟着关了
+  } catch (e) { showUpd(`<span style="color:var(--danger)">⚠ ${esc(e.message)}</span>`); }
+}
+updBox.onclick = e => {
+  const id = e.target.id;
+  if (id === "updCheck") checkUpdate();
+  else if (id === "updGo") startUpdate();
+  else if (id === "updCancel") { e.target.disabled = true; e.target.textContent = "正在取消…"; api("/api/update/cancel", {}).catch(() => {}); }
+};
+$("#setBtn").onclick = () => {
+  $("#setVer").textContent = ver.version ? "v" + ver.version : "未知";
+  $("#setRepo").textContent = ver.repo;
+  $("#settings").showModal();
+  checkUpdate();
+};
+$("#setClose").onclick = () => $("#settings").close();
+api("/api/version", {}).then(v => {
+  ver = v; $("#verTag").textContent = "v" + v.version;
+  if (v.canUpdate) setTimeout(() => checkUpdate(true), 5000);  // 启动后悄悄查一次，有新版本时设置按钮上亮一个小红点
+}).catch(() => {});
 
 Promise.all([api("/api/items"), api("/api/cats")])
   .then(([d, c]) => { items = d; catsList = c; render(); checkExists(); pollRunning(); })
