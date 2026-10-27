@@ -1,0 +1,964 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>程序导航</title>
+<style>
+:root {
+  --bg: #f6f8fa; --panel: #ffffff; --ink: #2b2f36; --muted: #858a93; --line: #e4ecf3;
+  --accent: #2f6f5e; --accent-soft: #e2efe9; --danger: #b4432f; --warn: #b07a12;
+  --shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 14px rgba(0,0,0,.05);
+  --mono: "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161716; --panel: #1f201f; --ink: #ecebe6; --muted: #9a998f; --line: #2f302d;
+    --accent: #6cc0a5; --accent-soft: #233a33; --danger: #e07a64; --warn: #d9a845;
+    --shadow: 0 1px 2px rgba(0,0,0,.3);
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 14px/1.5 "Microsoft YaHei UI", "Segoe UI", sans-serif; }
+button { font: inherit; color: inherit; cursor: pointer; }
+.app { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+
+aside { border-right: 1px solid var(--line); padding: 20px 12px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+.brand { font-size: 18px; font-weight: 700; padding: 0 10px 16px; letter-spacing: .5px; }
+.brand small { display: block; font-size: 12px; font-weight: 400; color: var(--muted); }
+.cat { display: flex; justify-content: space-between; width: 100%; border: 0; background: none;
+  text-align: left; padding: 7px 10px; border-radius: 7px; margin-bottom: 2px; }
+.cat:hover { background: var(--line); }
+.cat.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.cat span:last-child { color: var(--muted); font-size: 12px; }
+
+main { padding: 20px 28px 60px; min-width: 0; }
+.bar { display: flex; gap: 10px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
+.search { flex: 1; min-width: 220px; position: relative; }
+.search input { width: 100%; padding: 11px 14px 11px 38px; font-size: 15px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink); outline: none; }
+.search input:focus { border-color: var(--accent); }
+.search svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); }
+.search kbd { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font: 11px var(--mono);
+  color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; }
+.btn { border: 1px solid var(--line); background: var(--panel); padding: 9px 14px; border-radius: 9px; white-space: nowrap; }
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+@media (prefers-color-scheme: dark) { .btn.primary { color: #10201b; } }
+
+h2 { font-size: 13px; color: var(--muted); font-weight: 600; margin: 22px 0 10px; letter-spacing: 1px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px;
+  box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.card:hover { border-color: var(--muted); }
+.head { display: flex; gap: 10px; align-items: center; min-width: 0; }
+.icon { width: 36px; height: 36px; border-radius: 9px; display: grid; place-items: center; flex: none;
+  font-weight: 700; color: #fff; font-size: 16px; }
+.title { min-width: 0; }
+.title b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.title i { font-style: normal; font-size: 12px; color: var(--muted); }
+.note { color: var(--muted); font-size: 13px; }
+.path { font: 12px var(--mono); background: var(--bg); border-radius: 6px; padding: 6px 8px;
+  word-break: break-all; cursor: pointer; border: 1px dashed transparent; }
+.path:hover { border-color: var(--accent); }
+.path.missing { color: var(--danger); }
+.path.missing::before { content: "⚠ 找不到：" ; font-family: inherit; }
+.acts { display: flex; gap: 6px; margin-top: auto; }
+.acts button { border: 0; background: var(--bg); padding: 5px 10px; border-radius: 6px; font-size: 12px; }
+.acts button:hover { background: var(--accent-soft); color: var(--accent); }
+.acts .grow { flex: 1; }
+.star { border: 0; background: none; font-size: 16px; color: var(--line); padding: 0 2px; margin-left: auto; }
+.star.on { color: var(--warn); }
+mark { background: #f6e3a1; color: inherit; border-radius: 2px; }
+@media (prefers-color-scheme: dark) { mark { background: #6a5520; } }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; background: var(--panel); }
+.seg button { border: 0; background: none; padding: 9px 12px; }
+.seg button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+
+.grid.compact { grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 4px; }
+main.compact h2 { margin: 16px 0 6px; }
+.tile { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 4px 8px;
+  border-radius: 10px; cursor: pointer; position: relative; user-select: none; min-width: 0; }
+.tile:hover { background: var(--panel); box-shadow: var(--shadow); }
+.tile .icon { width: 42px; height: 42px; border-radius: 11px; font-size: 18px; }
+.tile span { font-size: 12px; text-align: center; line-height: 1.3; width: 100%; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-all; }
+.tile.missing .icon { filter: grayscale(1); opacity: .5; }
+.tile.missing span { color: var(--danger); }
+.tile .fav { position: absolute; top: 4px; right: 10px; color: var(--warn); font-size: 12px; }
+
+/* 图标：真实图标优先，没有时用渐变彩字 */
+.icon { overflow: hidden; }
+.icon-wrap { position: relative; flex: none; }
+.run { position: absolute; right: -2px; bottom: -2px; width: 12px; height: 12px; border-radius: 50%;
+  background: #22c55e; border: 2px solid var(--panel); }
+.run::after { content: ""; position: absolute; inset: -2px; border-radius: 50%; border: 2px solid #22c55e;
+  animation: ping 2s ease-out infinite; }
+@keyframes ping { from { transform: scale(.8); opacity: .7; } to { transform: scale(2); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .run::after { animation: none; display: none; } }
+.cat.run-cat span:first-child { color: #16a34a; }
+.cat-sec { margin-top: 10px; padding-top: 12px; border-top: 1px dashed var(--line); }
+.cat-label { font-size: 11px; color: var(--muted); padding: 0 10px 6px; letter-spacing: 1px; }
+.cat-hint { font-size: 12px; color: var(--muted); padding: 0 10px 10px; line-height: 1.6; }
+.cat-add { width: 100%; margin-top: 6px; border: 1px dashed color-mix(in srgb, var(--muted) 45%, transparent);
+  background: none; color: var(--muted); padding: 7px 10px; border-radius: 7px; text-align: left; font-size: 13px; }
+.cat-add:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.cat-input { width: 100%; padding: 6px 10px; margin: 2px 0; border: 1px solid var(--accent); border-radius: 7px;
+  font: inherit; background: var(--panel); color: var(--ink); outline: none; }
+
+.add-tile { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 60px; cursor: pointer;
+  border: 1.5px dashed color-mix(in srgb, var(--muted) 45%, transparent); border-radius: 8px; color: var(--muted);
+  font-size: 13px; transition: .2s; user-select: none; }
+.add-tile:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.grid.nav .add-tile { height: 76px; }
+.grid.compact .add-tile { min-height: 84px; flex-direction: column; gap: 2px; }
+.empty-sm { color: var(--muted); font-size: 13px; margin-top: 14px; }
+
+.pick-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;
+  max-height: 52vh; overflow-y: auto; padding: 2px; margin-top: 10px; }
+.pick { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1.5px solid var(--line);
+  border-radius: 8px; cursor: pointer; position: relative; user-select: none; min-width: 0; }
+.pick:hover { border-color: var(--muted); }
+.pick.on { border-color: var(--accent); background: var(--accent-soft); }
+.pick.on::after { content: "✓"; position: absolute; top: 3px; right: 8px; color: var(--accent); font-weight: 700; font-size: 12px; }
+.pick .icon { width: 30px; height: 30px; font-size: 13px; border-radius: 8px; }
+.pick .icon.img img { width: 24px; height: 24px; }
+.pick .t { min-width: 0; }
+.pick b { display: block; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick small { color: var(--muted); font-size: 11px; }
+.no-title { height: 4px; }
+.icon.letter { background: linear-gradient(140deg, hsl(var(--h) 80% 66%), hsl(calc(var(--h) + 28) 72% 52%)) !important;
+  color: #fff; border-radius: 11px !important; text-shadow: 0 1px 1px rgba(0,0,0,.15);
+  box-shadow: inset 0 -2px 0 rgba(0,0,0,.08); }
+.icon.img { background: none !important; border-radius: 0 !important; }
+.icon.img img { width: 32px; height: 32px; image-rendering: auto; }
+.icon.custom img { width: 100%; height: 100%; object-fit: contain; border-radius: 6px; }
+
+/* 编辑窗口里的图标设置 */
+.icon-row { display: flex; gap: 14px; align-items: center; padding: 10px; border: 1.5px dashed transparent;
+  border-radius: 10px; background: var(--bg); transition: .15s; }
+.icon-row.drag { border-color: var(--accent); background: var(--accent-soft); }
+.icon-preview .icon { width: 48px; height: 48px; font-size: 20px; }
+.icon-preview .icon.img:not(.custom) img { width: 32px; height: 32px; }
+.icon-btns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; flex: 1; }
+.icon-btns .btn { padding: 6px 12px; font-size: 13px; }
+.icon-btns small { width: 100%; color: var(--muted); font-size: 12px; }
+.icon-tag { font-size: 12px; color: var(--muted); margin-left: 2px; }
+
+/* 导航视图：参考 WebStack 的留白和悬停浮起 */
+.grid.nav { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px 18px; }
+.nav-item { display: flex; align-items: center; gap: 12px; height: 76px; padding: 0 18px; min-width: 0;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; user-select: none;
+  position: relative; transition: transform .3s ease, box-shadow .3s ease; }
+.nav-item:hover { transform: translateY(-5px); box-shadow: 0 24px 36px -22px rgba(0, 36, 100, .32); }
+.nav-item:active { transform: translateY(-2px); }
+.nav-item .icon { width: 40px; height: 40px; border-radius: 50%; font-size: 16px; flex: none; }
+.nav-item .txt { min-width: 0; flex: 1; }
+.nav-item .txt b { display: block; font-size: 14px; font-weight: 700; color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 2px; }
+.nav-item .txt span { font-size: 12px; line-height: 1.45; color: #979898; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-all; }
+.nav-item .txt span.auto { color: #b4b6b8; }
+@media (prefers-color-scheme: dark) { .nav-item .txt span { color: var(--muted); } .nav-item .txt span.auto { color: #6f6e68; } }
+.nav-item .fav { position: absolute; top: 5px; right: 8px; color: var(--warn); font-size: 11px; }
+.nav-item.missing .icon { filter: grayscale(1); opacity: .5; }
+.nav-item.missing .txt b { color: var(--danger); }
+main.nav h2 { margin: 26px 0 12px; font-size: 14px; color: var(--ink); letter-spacing: .5px; }
+main.nav h2::before { content: ""; display: inline-block; width: 3px; height: 13px; background: var(--accent);
+  border-radius: 2px; margin-right: 8px; vertical-align: -1px; }
+
+.menu { position: fixed; z-index: 20; background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
+  box-shadow: 0 8px 30px rgba(0,0,0,.18); padding: 4px; min-width: 150px; display: none; }
+.menu.show { display: block; }
+.menu .mhead { padding: 6px 10px 4px; font-size: 12px; color: var(--muted); max-width: 320px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+.menu button { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 6px 10px; border-radius: 6px; }
+.menu button:hover { background: var(--accent-soft); color: var(--accent); }
+
+.empty { text-align: center; color: var(--muted); padding: 80px 20px; }
+
+dialog { border: 1px solid var(--line); border-radius: 14px; padding: 0; background: var(--panel); color: var(--ink);
+  width: min(560px, 94vw); box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+dialog::backdrop { background: rgba(0,0,0,.35); }
+dialog form { padding: 22px; }
+dialog h3 { margin: 0 0 16px; }
+label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 4px; }
+.field { width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+  color: var(--ink); font: inherit; outline: none; }
+.field:focus { border-color: var(--accent); }
+.row { display: flex; gap: 6px; }
+.row .field { flex: 1; }
+.foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+.foot .danger { color: var(--danger); margin-right: auto; }
+.scan-list { max-height: 50vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; }
+.scan-list label { display: flex; gap: 8px; align-items: flex-start; margin: 0; padding: 7px 10px; color: var(--ink);
+  font-size: 13px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.scan-list label small { display: block; color: var(--muted); font: 11px var(--mono); word-break: break-all; }
+.scan-list label.dup { opacity: .45; }
+
+dialog.wide { width: min(780px, 94vw); }
+.chips { display: flex; gap: 6px; align-items: center; margin: 10px 0; flex-wrap: wrap; }
+.chips button { border: 1px solid var(--line); background: none; padding: 4px 12px; border-radius: 99px; font-size: 13px; }
+.chips button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.chips span { margin-left: auto; color: var(--muted); font-size: 12px; }
+.ev-list { height: 52vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; }
+.ev-row { display: flex; gap: 10px; align-items: center; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+.ev-row:hover { background: var(--bg); }
+.ev-row div { flex: 1; min-width: 0; }
+.ev-row b { font-weight: 600; }
+.ev-row small { display: block; color: var(--muted); font: 11px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ev-row button { border: 1px solid var(--line); background: var(--panel); padding: 4px 10px; border-radius: 6px; font-size: 12px; flex: none; }
+.ev-row button:hover { border-color: var(--accent); color: var(--accent); }
+.ev-row .added { color: var(--muted); font-size: 12px; flex: none; }
+.ev-msg { padding: 40px 20px; text-align: center; color: var(--muted); line-height: 1.9; }
+.ev-msg a { color: var(--accent); }
+.toast { position: fixed; z-index: 10; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px); opacity: 0;
+  background: var(--ink); color: var(--bg); padding: 9px 18px; border-radius: 9px; transition: .2s; pointer-events: none; }
+.toast.show { opacity: 1; transform: translateX(-50%); }
+
+@media (max-width: 720px) {
+  .app { grid-template-columns: 1fr; }
+  aside { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+  main { padding: 16px; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div class="brand">程序导航<small>我电脑上的一切</small></div>
+    <div id="cats"></div>
+  </aside>
+  <main>
+    <div class="bar">
+      <div class="search">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="q" placeholder="搜索名称、路径、备注、分类…" autocomplete="off">
+        <kbd>/</kbd>
+      </div>
+      <button class="btn primary" id="evBtn">＋ 添加程序</button>
+      <button class="btn" id="moreBtn" title="更多">⋯</button>
+      <div class="seg" id="viewSeg">
+        <button data-view="nav">导航</button><button data-view="compact">图标</button><button data-view="card">详细</button>
+      </div>
+    </div>
+    <div id="list"></div>
+  </main>
+</div>
+
+<dialog id="edit">
+  <form method="dialog" id="editForm">
+    <h3 id="editTitle">添加</h3>
+    <label>路径（程序、脚本、文件夹都行）</label>
+    <div class="row">
+      <input class="field" name="path" required placeholder="C:\tools\my_script.py">
+      <button type="button" class="btn" data-browse="file">选文件</button>
+      <button type="button" class="btn" data-browse="folder">选文件夹</button>
+    </div>
+    <label>名称</label>
+    <input class="field" name="name" required>
+    <label>图标</label>
+    <div class="icon-row" id="iconRow">
+      <div class="icon-preview" id="iconPreview"></div>
+      <div class="icon-btns">
+        <button type="button" class="btn" id="iconPick">选择图片</button>
+        <button type="button" class="btn" id="iconReset">恢复默认</button>
+        <span class="icon-tag" id="iconTag"></span>
+        <small>也可以把图片拖到这里，或者复制图片后在这个窗口里按 Ctrl+V</small>
+        <input type="file" id="iconFile" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,.ico" hidden>
+      </div>
+    </div>
+    <label>分类</label>
+    <input class="field" name="category" list="catList" placeholder="可以不填；填了就会在左边出现这个分组">
+    <datalist id="catList"></datalist>
+    <label>备注</label>
+    <input class="field" name="note" placeholder="这是干嘛用的（搜索时也会搜这里）">
+    <div class="foot">
+      <button type="button" class="btn danger" id="delBtn">删除</button>
+      <button type="button" class="btn" id="cancelBtn">取消</button>
+      <button class="btn primary">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="scan">
+  <form method="dialog" id="scanForm">
+    <h3>从开始菜单导入</h3>
+    <div class="row" style="margin-bottom:10px">
+      <input class="field" id="scanQ" placeholder="筛选…">
+      <button type="button" class="btn" id="scanAll">全选</button>
+      <button type="button" class="btn" id="scanNone">全不选</button>
+    </div>
+    <div class="scan-list" id="scanList"></div>
+    <div class="foot">
+      <button type="button" class="btn" id="scanCancel">取消</button>
+      <button class="btn primary" id="scanOk">导入选中的</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="ev" class="wide">
+  <form method="dialog">
+    <h3>全盘搜索添加 <small style="font-weight:400;color:var(--muted);font-size:12px">由 Everything 提供搜索</small></h3>
+    <input class="field" id="evQ" placeholder="输入文件名，例如 rename、tool、*.py …" autocomplete="off">
+    <div class="chips" id="evKind">
+      <button type="button" data-kind="program" class="on">程序和脚本</button>
+      <button type="button" data-kind="folder">文件夹</button>
+      <button type="button" data-kind="all">全部文件</button>
+      <span id="evCount"></span>
+    </div>
+    <div class="ev-list" id="evList"></div>
+    <div class="foot">
+      <button type="button" class="btn" id="evManual" style="margin-right:auto">✎ 手动填写路径</button>
+      <button type="button" class="btn" id="evClose">关闭</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="kill" style="width:min(440px,94vw)">
+  <form method="dialog">
+    <h3 id="killTitle"></h3>
+    <p id="killMsg" style="color:var(--muted);margin:0 0 4px"></p>
+    <p id="killLeft" style="color:var(--warn);margin:8px 0 0;display:none"></p>
+    <div class="foot">
+      <button type="button" class="btn" id="killCancel">取消</button>
+      <button type="button" class="btn" id="killForce" style="color:var(--danger)">强制结束</button>
+      <button type="button" class="btn primary" id="killSoft">正常关闭</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="pick" class="wide">
+  <form method="dialog">
+    <h3 id="pickTitle"></h3>
+    <input class="field" id="pickQ" placeholder="筛选程序…" autocomplete="off">
+    <div class="pick-list" id="pickList"></div>
+    <div class="foot">
+      <span id="pickCount" style="margin-right:auto;color:var(--muted);font-size:13px;align-self:center"></span>
+      <button type="button" class="btn" id="pickCancel">取消</button>
+      <button type="button" class="btn primary" id="pickOk">确定</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="menu" id="menu"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+let items = [], exists = {}, icons = {}, running = {}, curCat = "全部", editing = null, scanned = [];
+const RUN_CAT = "● 运行中";
+const runDot = i => running[i.id] ? `<i class="run" title="运行中${running[i.id] > 1 ? `（${running[i.id]} 个进程）` : ""}"></i>` : "";
+// 图标优先级：自己设置的 > 从文件读到的 > 彩色首字
+const iconInner = i => i.icon
+  ? `<div class="icon img custom"><img src="/icons/${esc(i.icon)}?v=${i.iconV || 0}" alt=""></div>`
+  : icons[i.path]
+  ? `<div class="icon img"><img src="/icons/${icons[i.path]}" alt="" loading="lazy"></div>`
+  : `<div class="icon letter" style="--h:${hue(i.name || "?")}">${esc([...(i.name || "?")][0])}</div>`;
+const iconHtml = i => `<div class="icon-wrap">${iconInner(i)}${runDot(i)}</div>`;
+
+const api = async (url, body) => {
+  const r = await fetch(url, body === undefined ? {} : {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+  });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+};
+const toast = msg => { const t = $("#toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 1600); };
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const hl = (s, q) => { const e = esc(s); if (!q) return e;
+  const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"); return e.replace(re, m => `<mark>${m}</mark>`); };
+// 按名称算一个色相；乘黄金角让不同名字的颜色尽量拉开
+const hue = s => Math.round(([...s].reduce((h, c) => (h * 31 + c.codePointAt(0)) >>> 0, 7) % 97) * 137.508) % 360;
+const catOf = it => (it.category || "").trim();  // 空 = 没分类，默认摆放
+const save = () => api("/api/items", items).catch(e => toast("保存失败：" + e.message));
+
+// ---- 分类：自己建的（catsList，空的也保留）+ 程序上填过但不在列表里的 ----
+let catsList = [], addingCat = false, renaming = null;
+const RESERVED = ["全部", "★ 收藏", "● 运行中"];
+const saveCats = () => api("/api/cats", catsList).catch(e => toast("保存失败：" + e.message));
+const allCats = () => {
+  const used = [...new Set(items.map(catOf).filter(Boolean))].filter(c => !catsList.includes(c));
+  return [...catsList, ...used.sort((a, b) => a.localeCompare(b, "zh"))];
+};
+
+async function checkExists() {
+  const paths = items.map(i => i.path);
+  exists = await api("/api/exists", { paths });
+  render();
+  icons = await api("/api/icons", { paths });
+  render();
+}
+
+function render() {
+  const cats = {};
+  items.forEach(i => { if (catOf(i)) cats[catOf(i)] = (cats[catOf(i)] || 0) + 1; });
+  const favN = items.filter(i => i.fav).length;
+  const names = allCats();
+  $("#catList").innerHTML = names.map(c => `<option value="${esc(c)}">`).join("");
+  const runN = items.filter(i => running[i.id]).length;
+  const fixed = [["全部", items.length], [RUN_CAT, runN], ...(favN ? [["★ 收藏", favN]] : [])];
+  if (![...fixed.map(([c]) => c), ...names].includes(curCat)) curCat = "全部";
+  const catBtn = ([c, n], mine) => renaming === c
+    ? `<input class="cat-input" id="catInput" value="${esc(c)}">`
+    : `<button class="cat ${c === curCat ? "on" : ""} ${c === RUN_CAT ? "run-cat" : ""} ${mine ? "ucat" : ""}" data-cat="${esc(c)}"
+         ${mine ? `title="右键可以重命名或删除"` : ""}><span>${esc(c)}</span><span>${n}</span></button>`;
+  $("#cats").innerHTML = fixed.map(x => catBtn(x)).join("") + `<div class="cat-sec">${names.length
+      ? `<div class="cat-label">我的分类</div>` + names.map(c => catBtn([c, cats[c] || 0], true)).join("")
+      : `<div class="cat-hint">还没有分类。点下面的 ＋ 新建一个，再把程序加进去</div>`}
+    ${addingCat ? `<input class="cat-input" id="catInput" placeholder="分类名称，回车确定">`
+                : `<button class="cat-add" id="catAdd">＋ 新建分类</button>`}</div>`;
+  const ci = $("#catInput");
+  if (ci) { ci.focus(); ci.select(); }
+  const userCat = names.includes(curCat);
+
+  const q = $("#q").value.trim();
+  const ql = q.toLowerCase();
+  let list = items.filter(i =>
+    (curCat === "全部" || (curCat === "★ 收藏" ? i.fav : curCat === RUN_CAT ? running[i.id] : catOf(i) === curCat)) &&
+    (!ql || [i.name, i.path, i.note, i.category].some(v => (v || "").toLowerCase().includes(ql))));
+  // 详细视图里收藏排前面；导航/图标视图保持位置固定（方便形成空间记忆），收藏另起一组
+  list.sort((a, b) => (view === "card" ? (b.fav ? 1 : 0) - (a.fav ? 1 : 0) : 0) || a.name.localeCompare(b.name, "zh"));
+
+  if (!items.length) {
+    $("#list").innerHTML = `<div class="empty">还没有内容。<br>点「＋ 添加」放入你的程序或脚本，或者「从开始菜单导入」一次性导入已安装的软件。</div>`;
+    return;
+  }
+  if (!list.length && curCat === RUN_CAT && !q) {
+    $("#list").innerHTML = `<div class="empty">导航里的程序目前都没有在运行</div>`;
+    return;
+  }
+  if (!list.length && !(userCat && !q)) {
+    $("#list").innerHTML = `<div class="empty">导航里没有「${esc(q)}」<br><br>
+      <button class="btn primary" id="evFromEmpty">🔍 去全盘搜索「${esc(q)}」</button></div>`;
+    $("#evFromEmpty").onclick = () => openEv(q);
+    return;
+  }
+
+  const groups = {};
+  list.forEach(i => (groups[catOf(i)] ||= []).push(i));
+  const showGroups = curCat === "全部" && !q;
+  const compact = view === "compact";
+  $("main").classList.toggle("compact", compact);
+  $("main").classList.toggle("nav", view === "nav");
+  const isMissing = i => exists[i.path] === false && !i.demo;
+  const navItem = i => {
+    const tip = `${i.name}\n${i.path}${i.note ? "\n" + i.note : ""}${isMissing(i) ? "\n⚠ 找不到这个路径" : ""}\n\n双击运行 · 右键更多`;
+    return `
+    <div class="nav-item ${isMissing(i) ? "missing" : ""}" data-id="${i.id}" title="${esc(tip)}">
+      ${i.fav ? `<b class="fav">★</b>` : ""}
+      ${iconHtml(i)}
+      <div class="txt"><b>${hl(i.name, q)}</b>${i.note
+        ? `<span>${hl(i.note, q)}</span>` : `<span class="auto">${esc(autoDesc(i.path))}</span>`}</div>
+    </div>`;
+  };
+  const tile = i => `
+    <div class="tile ${isMissing(i) ? "missing" : ""}" data-id="${i.id}"
+         title="${esc(i.name)}\n${esc(i.path)}${i.note ? "\n" + esc(i.note) : ""}${isMissing(i) ? "\n⚠ 找不到这个路径" : ""}\n\n双击运行 · 右键更多">
+      ${i.fav ? `<b class="fav">★</b>` : ""}
+      ${iconHtml(i)}
+      <span>${hl(i.name, q)}</span>
+    </div>`;
+  const card = view === "nav" ? navItem : compact ? tile : i => `
+    <div class="card" data-id="${i.id}">
+      <div class="head">
+        ${iconHtml(i)}
+        <div class="title"><b>${hl(i.name, q)}</b>${showGroups ? "" : `<i>${hl(catOf(i), q)}</i>`}</div>
+        <button class="star ${i.fav ? "on" : ""}" data-act="fav" data-id="${i.id}" title="收藏">★</button>
+      </div>
+      ${i.note ? `<div class="note">${hl(i.note, q)}</div>` : ""}
+      <div class="path ${exists[i.path] === false && !i.demo ? "missing" : ""}" data-act="copy" data-id="${i.id}" title="点击复制路径">${hl(i.path, q)}</div>
+      <div class="acts">
+        <button data-act="copy" data-id="${i.id}">复制路径</button>
+        <button data-act="folder" data-id="${i.id}">打开位置</button>
+        <button data-act="run" data-id="${i.id}">运行</button>
+        <span class="grow"></span>
+        <button data-act="edit" data-id="${i.id}">编辑</button>
+      </div>
+    </div>`;
+  const gridCls = "grid " + (view === "nav" ? "nav" : compact ? "compact" : "");
+  const section = (title, arr) => (title ? `<h2>${esc(title)}</h2>` : `<div class="no-title"></div>`)
+    + `<div class="${gridCls}">${arr.map(card).join("")}</div>`;
+  const favs = view !== "card" && showGroups ? list.filter(i => i.fav) : [];
+  // 没分类的摆在前面；只有它自己时不加标题，跟其他组并列时才加个标题区分
+  const named = names.filter(c => groups[c]);
+  const loose = groups[""] ? section(named.length ? "未分组" : favs.length ? "全部" : "", groups[""]) : "";
+  // 自己建的分类页面：末尾放一个“＋ 添加程序”
+  const inCat = userCat && !q;
+  $("#list").innerHTML = showGroups
+    ? (favs.length ? section("★ 常用", favs) : "") + loose + named.map(g => section(g, groups[g])).join("")
+    : `<div class="${gridCls}">${list.map(card).join("")}${inCat
+        ? `<div class="add-tile" data-act="pick"><b style="font-size:16px">＋</b>添加程序</div>` : ""}</div>`
+      + (inCat && !list.length ? `<p class="empty-sm">「${esc(curCat)}」还是空的，点上面的 ＋ 从全部程序里挑几个加进来</p>` : "");
+}
+
+// 没写备注时，用文件类型 + 所在文件夹当介绍
+const TYPES = { exe: "程序", py: "Python 脚本", pyw: "Python 脚本", bat: "批处理", cmd: "批处理", ps1: "PowerShell 脚本",
+  ahk: "AutoHotkey 脚本", vbs: "VBS 脚本", jar: "Java 程序", lnk: "快捷方式", msc: "系统工具" };
+function autoDesc(path) {
+  const parts = path.replace(/[\\/]+$/, "").split(/[\\/]/);
+  const file = parts.pop(), m = file.match(/\.([^.]+)$/);
+  const type = m ? TYPES[m[1].toLowerCase()] || m[1].toUpperCase() + " 文件" : "文件夹";
+  const dir = parts.length > 1 ? parts.at(-1) : parts[0];
+  return dir ? `${type} · ${dir}` : type;
+}
+
+// ---- 视图切换（记在本机浏览器里）----
+let view = "nav";
+try { view = localStorage.getItem("view2") || "nav"; } catch {}
+const syncSeg = () => $("#viewSeg").querySelectorAll("button")
+  .forEach(b => b.classList.toggle("on", b.dataset.view === view));
+syncSeg();
+$("#viewSeg").onclick = e => {
+  const b = e.target.closest("[data-view]"); if (!b) return;
+  view = b.dataset.view; syncSeg(); render();
+  try { localStorage.setItem("view2", view); } catch {}
+};
+
+// ---- 右键菜单 ----
+const menu = $("#menu");
+const hideMenu = () => menu.classList.remove("show");
+$("#list").addEventListener("contextmenu", e => {
+  const el = e.target.closest("[data-id]"); if (!el) return;
+  e.preventDefault();
+  const it = items.find(i => i.id === el.dataset.id);
+  menu.innerHTML = `<div class="mhead" title="${esc(it.path)}">${esc(it.path)}</div>` +
+    [["copy", "复制路径"], ["folder", "打开位置"], ["run", "运行"], ["fav", it.fav ? "取消收藏" : "收藏"], ["edit", "编辑"],
+     ...(catOf(it) ? [["uncat", `移出「${esc(catOf(it))}」`]] : []),
+     ...(running[it.id] ? [["kill", `<span style="color:var(--danger)">结束进程${running[it.id] > 1 ? `（${running[it.id]} 个）` : ""}</span>`]] : [])]
+      .map(([a, t]) => `<button data-act="${a}" data-id="${it.id}">${t}</button>`).join("");
+  menu.classList.add("show");
+  const r = menu.getBoundingClientRect();
+  menu.style.left = Math.min(e.clientX, innerWidth - r.width - 8) + "px";
+  menu.style.top = Math.min(e.clientY, innerHeight - r.height - 8) + "px";
+});
+// 右键左边自己建的分类：加程序 / 重命名 / 删除
+$("#cats").addEventListener("contextmenu", e => {
+  const b = e.target.closest(".cat.ucat"); if (!b) return;
+  e.preventDefault();
+  const c = b.dataset.cat;
+  menu.innerHTML = `<div class="mhead">${esc(c)}</div>` +
+    [["pick", "＋ 添加程序"], ["rename", "重命名"], ["del", `<span style="color:var(--danger)">删除分类</span>`]]
+      .map(([a, t]) => `<button data-catact="${a}" data-cat="${esc(c)}">${t}</button>`).join("");
+  menu.classList.add("show");
+  const r = menu.getBoundingClientRect();
+  menu.style.left = Math.min(e.clientX, innerWidth - r.width - 8) + "px";
+  menu.style.top = Math.min(e.clientY, innerHeight - r.height - 8) + "px";
+});
+menu.onclick = e => {
+  const b = e.target.closest("[data-act],[data-more],[data-catact]"); if (!b) return;
+  hideMenu();
+  if (b.dataset.act) return doAct(b.dataset.act, b.dataset.id);
+  if (b.dataset.catact) {
+    const c = b.dataset.cat;
+    if (b.dataset.catact === "pick") { curCat = c; render(); openPick(); }
+    if (b.dataset.catact === "rename") { renaming = c; render(); }
+    if (b.dataset.catact === "del") delCat(c);
+    return;
+  }
+  ({ search: () => openEv(), manual: () => openEdit(), scan: () => startScan(),
+     demo: () => { items = items.filter(i => !i.demo); save(); render(); toast("示例已清除"); } })[b.dataset.more]();
+};
+$("#moreBtn").onclick = e => {
+  e.stopPropagation();
+  menu.innerHTML = [["search", "🔍 全盘搜索添加（Everything）"], ["manual", "✎ 手动填写路径添加"], ["scan", "⇩ 从开始菜单导入"],
+    ...(items.some(i => i.demo) ? [["demo", "✕ 清除示例数据"]] : [])]
+    .map(([k, t]) => `<button data-more="${k}">${t}</button>`).join("");
+  const r = $("#moreBtn").getBoundingClientRect();
+  menu.classList.add("show");
+  menu.style.left = Math.min(r.left, innerWidth - menu.offsetWidth - 8) + "px";
+  menu.style.top = r.bottom + 6 + "px";
+};
+document.addEventListener("click", e => { if (!menu.contains(e.target)) hideMenu(); });
+addEventListener("scroll", hideMenu, true);
+addEventListener("blur", hideMenu);
+
+$("#cats").onclick = e => {
+  if (e.target.closest("#catAdd")) { addingCat = true; renaming = null; render(); return; }
+  const b = e.target.closest(".cat"); if (b) { curCat = b.dataset.cat; render(); }
+};
+$("#cats").addEventListener("keydown", e => {
+  if (e.target.id !== "catInput") return;
+  if (e.key === "Enter") { e.preventDefault(); commitCat(e.target.value); }
+  if (e.key === "Escape") { addingCat = false; renaming = null; render(); }
+});
+$("#cats").addEventListener("focusout", e => { if (e.target.id === "catInput") commitCat(e.target.value); });
+
+function commitCat(value) {
+  const name = value.trim(), old = renaming, adding = addingCat;
+  if (!adding && old === null) return;  // 已经处理过（回车后又触发了失焦）
+  addingCat = false; renaming = null;
+  const taken = n => RESERVED.includes(n) || allCats().includes(n);
+  if (name && adding) {
+    if (RESERVED.includes(name)) toast("这个名字被占用了，换一个吧");
+    else { if (!taken(name)) { catsList.push(name); saveCats(); } curCat = name; }
+  } else if (name && old !== null && name !== old) {
+    if (taken(name)) toast("已经有叫这个名字的分类了");
+    else {
+      const k = catsList.indexOf(old);
+      k >= 0 ? catsList[k] = name : catsList.push(name);
+      items.forEach(i => { if (catOf(i) === old) i.category = name; });
+      save(); saveCats();
+      if (curCat === old) curCat = name;
+    }
+  }
+  render();
+}
+function delCat(c) {
+  const n = items.filter(i => catOf(i) === c).length;
+  catsList = catsList.filter(x => x !== c);
+  items.forEach(i => { if (catOf(i) === c) i.category = ""; });
+  save(); saveCats();
+  if (curCat === c) curCat = "全部";
+  render();
+  toast(`已删除分类「${c}」${n ? `，里面的 ${n} 个程序回到了未分组` : ""}`);
+}
+
+// ---- 往分类里加程序：勾选 = 在这个分类里 ----
+let picking = null, picked = new Set();
+function openPick() {
+  picking = curCat;
+  picked = new Set(items.filter(i => catOf(i) === picking).map(i => i.id));
+  $("#pickTitle").textContent = `把程序加到「${picking}」`;
+  $("#pickQ").value = "";
+  renderPick(); $("#pick").showModal(); $("#pickQ").focus();
+}
+const pickCount = () => $("#pickCount").textContent = `已选 ${picked.size} 个`;
+function renderPick() {
+  const q = $("#pickQ").value.trim().toLowerCase();
+  const arr = [...items].sort((a, b) => a.name.localeCompare(b.name, "zh"))
+    .filter(i => !q || [i.name, i.path, i.note].some(v => (v || "").toLowerCase().includes(q)));
+  $("#pickList").innerHTML = arr.map(i => `
+    <div class="pick ${picked.has(i.id) ? "on" : ""}" data-pid="${i.id}" title="${esc(i.path)}">
+      ${iconHtml(i)}
+      <div class="t"><b>${esc(i.name)}</b>${catOf(i) && catOf(i) !== picking ? `<small>当前在「${esc(catOf(i))}」</small>` : ""}</div>
+    </div>`).join("")
+    || `<div class="ev-msg" style="grid-column:1/-1">${items.length ? "没有匹配的程序" : "还没有任何程序，先点右上角「＋ 添加程序」"}</div>`;
+  pickCount();
+}
+$("#pickList").onclick = e => {
+  const p = e.target.closest("[data-pid]"); if (!p) return;
+  const id = p.dataset.pid;
+  picked.has(id) ? picked.delete(id) : picked.add(id);
+  p.classList.toggle("on", picked.has(id)); pickCount();
+};
+$("#pickQ").oninput = renderPick;
+$("#pickQ").onkeydown = e => { if (e.key === "Enter") e.preventDefault(); };
+$("#pickCancel").onclick = () => $("#pick").close();
+$("#pickOk").onclick = () => {
+  let add = 0, rm = 0;
+  items.forEach(i => {
+    const was = catOf(i) === picking;
+    if (picked.has(i.id) && !was) { i.category = picking; add++; }
+    if (!picked.has(i.id) && was) { i.category = ""; rm++; }
+  });
+  if (add || rm) save();
+  $("#pick").close(); render();
+  toast(add || rm ? [add && `加入 ${add} 个`, rm && `移出 ${rm} 个`].filter(Boolean).join("，") : "没有变化");
+};
+$("#q").oninput = render;
+document.addEventListener("keydown", e => {
+  if (e.key === "/" && document.activeElement.tagName !== "INPUT" && !document.querySelector("dialog[open]")) {
+    e.preventDefault(); $("#q").focus();
+  }
+  if (e.key === "Escape" && document.activeElement === $("#q")) { $("#q").value = ""; render(); }
+});
+
+// 双击卡片 = 运行（详细视图里双击按钮或路径不算）
+$("#list").addEventListener("dblclick", e => {
+  if (e.target.closest("button, .path")) return;
+  const el = e.target.closest(".nav-item, .tile, .card");
+  if (el) { getSelection()?.removeAllRanges(); doAct("run", el.dataset.id); }
+});
+$("#list").onclick = e => {
+  const el = e.target.closest("[data-act]");
+  if (el?.dataset.act === "pick") return openPick();
+  if (el && el.dataset.id) doAct(el.dataset.act, el.dataset.id);
+};
+async function doAct(act, id) {
+  const it = items.find(i => i.id === id);
+  try {
+    switch (act) {
+      case "copy": await navigator.clipboard.writeText(it.path); toast("已复制：" + it.path); break;
+      case "folder": await api("/api/open-folder", { path: it.path }); break;
+      case "run": await api("/api/run", { path: it.path }); toast("已启动 " + it.name); break;
+      case "fav": it.fav = !it.fav; save(); render(); break;
+      case "edit": openEdit(it); break;
+      case "kill": openKill(it); break;
+      case "uncat": toast(`已移出「${catOf(it)}」`); it.category = ""; save(); render(); break;
+    }
+  } catch (err) { toast(err.message); }
+}
+
+// ---- 添加 / 编辑 ----
+const f = $("#editForm");
+// 图标改动先暂存，点「保存」才生效：undefined = 没改，null = 恢复默认，字符串 = 新图片（dataURL）
+let iconPending, editId;
+function openEdit(it) {
+  editing = it || null;
+  editId = it?.id || crypto.randomUUID();
+  iconPending = undefined;
+  setTimeout(renderIconPreview);  // 等调用方填好路径/名称再画预览
+  $("#editTitle").textContent = it ? "编辑" : "添加";
+  $("#delBtn").style.display = it ? "" : "none";
+  f.path.value = it?.path || ""; f.name.value = it?.name || "";
+  f.note.value = it?.note || "";
+  f.category.value = it?.category || (curCat !== "全部" && curCat !== "★ 收藏" ? curCat : "");
+  $("#edit").showModal();
+  (it ? f.name : f.path).focus();
+}
+function renderIconPreview() {
+  const custom = editing?.icon && iconPending === undefined;
+  const draft = { name: f.name.value.trim() || "?", path: f.path.value.trim().replace(/^"|"$/g, "") };
+  let html, tag;
+  if (typeof iconPending === "string") {
+    html = `<div class="icon img custom"><img src="${iconPending}" alt=""></div>`;
+    tag = "自定义（保存后生效）";
+  } else if (custom) {
+    html = iconInner(editing); tag = "自定义";
+  } else {
+    html = iconInner(draft); tag = icons[draft.path] ? "默认（程序自带的图标）" : "默认（首字图标）";
+  }
+  $("#iconPreview").innerHTML = html;
+  $("#iconTag").textContent = tag;
+  $("#iconReset").disabled = !(typeof iconPending === "string" || custom);
+}
+function takeIconFile(file) {
+  if (!file) return;
+  if (!file.type.startsWith("image/") && !/\.ico$/i.test(file.name)) return toast("请选择图片文件");
+  if (file.size > 4 * 2 ** 20) return toast("图片太大了（超过 4 MB）");
+  const r = new FileReader();
+  r.onload = () => { iconPending = r.result; renderIconPreview(); };
+  r.readAsDataURL(file);
+}
+$("#iconPick").onclick = () => $("#iconFile").click();
+$("#iconFile").onchange = e => { takeIconFile(e.target.files[0]); e.target.value = ""; };
+$("#iconReset").onclick = () => { iconPending = null; renderIconPreview(); };
+// 拖图片进编辑窗口 / 在编辑窗口里粘贴图片
+$("#edit").addEventListener("dragover", e => { e.preventDefault(); $("#iconRow").classList.add("drag"); });
+$("#edit").addEventListener("dragleave", e => { if (!$("#edit").contains(e.relatedTarget)) $("#iconRow").classList.remove("drag"); });
+$("#edit").addEventListener("drop", e => {
+  e.preventDefault(); $("#iconRow").classList.remove("drag");
+  takeIconFile(e.dataTransfer.files[0]);
+});
+$("#edit").addEventListener("paste", e => {
+  const img = [...e.clipboardData.items].find(x => x.type.startsWith("image/"));
+  if (img) { e.preventDefault(); takeIconFile(img.getAsFile()); }
+});
+// 文件拖到页面其他地方时，别让窗口直接打开那个文件
+document.addEventListener("dragover", e => e.preventDefault());
+document.addEventListener("drop", e => e.preventDefault());
+
+const baseName = p => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop().replace(/\.[^.]+$/, "");
+f.path.addEventListener("change", () => { if (!f.name.value) f.name.value = baseName(f.path.value); renderIconPreview(); });
+f.name.addEventListener("input", renderIconPreview);
+f.querySelectorAll("[data-browse]").forEach(b => b.onclick = async () => {
+  try {
+    const { path } = await api("/api/browse", { kind: b.dataset.browse });
+    if (path) { f.path.value = path; if (!f.name.value) f.name.value = baseName(path); renderIconPreview(); }
+  } catch (err) { toast(err.message); }
+});
+$("#cancelBtn").onclick = () => $("#edit").close();
+$("#delBtn").onclick = () => {
+  if (!editing) return;
+  if (editing.icon) api("/api/custom-icon", { id: editing.id }).catch(() => {});
+  items = items.filter(i => i !== editing); save(); $("#edit").close(); render(); toast("已删除");
+};
+f.onsubmit = async () => {
+  const data = { path: f.path.value.trim().replace(/^"|"$/g, ""), name: f.name.value.trim(),
+                 category: f.category.value.trim(), note: f.note.value.trim() };
+  const target = editing, id = editId, pending = iconPending;
+  if (typeof pending === "string") {
+    try {
+      const { file } = await api("/api/custom-icon", { id, data: pending });
+      Object.assign(data, { icon: file, iconV: Date.now() });
+    } catch (err) { toast("图标没保存上：" + err.message); }
+  } else if (pending === null) {
+    data.icon = "";
+    api("/api/custom-icon", { id }).catch(() => {});
+  }
+  if (target) Object.assign(target, data);
+  else items.push({ id, fav: false, ...data });
+  if (data.category && !catsList.includes(data.category) && !RESERVED.includes(data.category)) {
+    catsList.push(data.category); saveCats();
+  }
+  save(); checkExists(); toast("已保存");
+  if ($("#ev").open) renderEv();
+};
+
+// ---- Everything 全盘搜索 ----
+let evKind = "program", evResults = [], evSeq = 0, evTimer;
+const evRow = (r, k, h) => `
+  <div class="ev-row">
+    <div><b>${esc(r.path.split("\\").pop())}</b><small title="${esc(r.path)}">${esc(r.path)}</small></div>
+    <button type="button" data-ev="folder" data-k="${k}">打开位置</button>
+    ${h.has(r.path.toLowerCase()) ? `<span class="added">✓ 已添加</span>`
+      : `<button type="button" data-ev="add" data-k="${k}">＋ 添加</button>`}
+  </div>`;
+function renderEv() {
+  const h = have();
+  $("#evList").innerHTML = evResults.map((r, k) => evRow(r, k, h)).join("")
+    || `<div class="ev-msg">${$("#evQ").value.trim() ? "没有搜到" : "输入关键字开始搜索"}</div>`;
+  $("#evCount").textContent = evResults.length ? `${evResults.length >= 200 ? "前 " : ""}${evResults.length} 个结果` : "";
+}
+async function evSearch() {
+  const q = $("#evQ").value.trim(), seq = ++evSeq;
+  if (!q) { evResults = []; return renderEv(); }
+  try {
+    const res = await api("/api/everything", { q, kind: evKind });
+    if (seq !== evSeq) return;  // 已经有更新的搜索了
+    evResults = res; renderEv();
+  } catch (err) {
+    if (seq !== evSeq) return;
+    evResults = []; $("#evCount").textContent = "";
+    if (err.message === "not_installed") showInstall();
+    else $("#evList").innerHTML = `<div class="ev-msg">⚠ ${esc(err.message)}</div>`;
+  }
+}
+function showInstall(state) {
+  const busy = state && !["idle", "done", "error"].includes(state.step);
+  $("#evList").innerHTML = `<div class="ev-msg">
+    全盘搜索需要免费软件 <b>Everything</b>（voidtools 出品），你的电脑上还没有安装。<br>
+    ${state ? `<div style="margin:14px 0;color:${state.step === "error" ? "var(--danger)" : "var(--ink)"}">
+      ${busy ? "⏳ " : state.step === "error" ? "⚠ " : ""}${esc(state.msg)}</div>` : "<br>"}
+    ${state?.step === "download" ? `
+      ${state.pct != null ? `<div style="height:6px;max-width:320px;margin:0 auto 12px;border-radius:3px;background:var(--line);overflow:hidden">
+        <div style="height:100%;width:${state.pct}%;background:var(--accent);transition:width .3s"></div></div>` : ""}
+      <button type="button" class="btn" id="evCancel">取消下载</button>` : ""}
+    ${busy ? "" : `<button type="button" class="btn primary" id="evInstall">${state?.step === "error" ? "重试安装" : "⚡ 一键安装 Everything"}</button>
+      <div style="font-size:12px;margin-top:10px">使用程序自带的安装包，不需要联网 → 校验官方签名 → 静默安装，中途 Windows 会弹一次管理员确认，点「是」即可</div>`}
+  </div>`;
+  const b = $("#evInstall");
+  if (b) b.onclick = installEverything;
+  const c = $("#evCancel");
+  if (c) c.onclick = () => { c.disabled = true; c.textContent = "正在取消…"; api("/api/install-cancel", {}).catch(() => {}); };
+}
+async function installEverything() {
+  try {
+    let s = await api("/api/install-everything", {});
+    while (!["done", "error"].includes(s.step)) {
+      showInstall(s);
+      await new Promise(r => setTimeout(r, 700));
+      s = await api("/api/install-status", {});
+    }
+    if (s.step === "error") return showInstall(s);
+    toast("Everything 已装好");
+    $("#evList").innerHTML = `<div class="ev-msg">✓ 安装完成，可以搜索了</div>`;
+    $("#evQ").focus();
+    if ($("#evQ").value.trim()) setTimeout(evSearch, 1500);
+  } catch (err) { showInstall({ step: "error", msg: err.message }); }
+}
+function openEv(q = "") {
+  $("#evQ").value = q; evResults = []; renderEv(); $("#ev").showModal(); $("#evQ").focus();
+  if (q) evSearch();
+}
+$("#evBtn").onclick = () => openEv();
+$("#evClose").onclick = () => $("#ev").close();
+$("#evManual").onclick = () => openEdit();
+$("#evQ").oninput = () => { clearTimeout(evTimer); evTimer = setTimeout(evSearch, 150); };
+$("#evQ").onkeydown = e => { if (e.key === "Enter") e.preventDefault(); };
+$("#evKind").onclick = e => {
+  const b = e.target.closest("[data-kind]"); if (!b) return;
+  evKind = b.dataset.kind;
+  $("#evKind").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+  evSearch();
+};
+$("#evList").onclick = async e => {
+  const b = e.target.closest("[data-ev]"); if (!b) return;
+  const r = evResults[b.dataset.k];
+  if (b.dataset.ev === "folder") return api("/api/open-folder", { path: r.path }).catch(err => toast(err.message));
+  openEdit();
+  f.path.value = r.path; f.name.value = baseName(r.path);
+  f.category.focus();
+};
+
+// ---- 从开始菜单导入 ----
+const have = () => new Set(items.map(i => i.path.toLowerCase()));
+function renderScan() {
+  const q = $("#scanQ").value.toLowerCase(), h = have();
+  $("#scanList").innerHTML = scanned.map((s, k) => {
+    const dup = h.has(s.path.toLowerCase());
+    const hide = q && !(s.name + s.path).toLowerCase().includes(q);
+    return `<label class="${dup ? "dup" : ""}" style="${hide ? "display:none" : ""}">
+      <input type="checkbox" data-k="${k}" ${dup ? "disabled" : s.on ? "checked" : ""}>
+      <div>${esc(s.name)}${dup ? "（已有）" : ""}<small>${esc(s.path)}</small></div></label>`;
+  }).join("") || `<div class="empty" style="padding:30px">没有扫描到</div>`;
+}
+const startScan = async () => {
+  toast("正在扫描…");
+  try { scanned = (await api("/api/scan", {})).map(s => ({ ...s, on: false })); }
+  catch (err) { return toast("扫描失败：" + err.message); }
+  $("#scanQ").value = ""; renderScan(); $("#scan").showModal();
+};
+$("#scanQ").oninput = renderScan;
+$("#scanList").onchange = e => { scanned[e.target.dataset.k].on = e.target.checked; };
+const setVisible = on => { $("#scanList").querySelectorAll("label:not([style*=none]) input:not(:disabled)")
+  .forEach(c => { c.checked = on; scanned[c.dataset.k].on = on; }); };
+$("#scanAll").onclick = () => setVisible(true);
+$("#scanNone").onclick = () => setVisible(false);
+$("#scanCancel").onclick = () => $("#scan").close();
+$("#scanForm").onsubmit = () => {
+  const h = have();
+  const add = scanned.filter(s => s.on && !h.has(s.path.toLowerCase()))
+    .map(s => ({ id: crypto.randomUUID(), name: s.name, path: s.path, category: "", note: "", fav: false }));
+  items.push(...add); save(); checkExists(); toast(`导入了 ${add.length} 个`);
+};
+
+// ---- 结束进程 ----
+let killing = null;
+function openKill(it) {
+  killing = it;
+  $("#killTitle").textContent = `结束「${it.name}」？`;
+  $("#killMsg").innerHTML = `正在运行 ${running[it.id] || 0} 个进程。<br>
+    <b>正常关闭</b>：和点窗口右上角 ✕ 一样，程序可以先保存。<br>
+    <b>强制结束</b>：立刻终止，没保存的内容会丢失。`;
+  $("#killLeft").style.display = "none";
+  $("#kill").showModal();
+  $("#killSoft").focus();
+}
+async function doKill(force) {
+  const btns = $("#kill").querySelectorAll(".foot button");
+  btns.forEach(b => b.disabled = true);
+  try {
+    const { left } = await api("/api/close", { id: killing.id, force });
+    if (!left) { $("#kill").close(); toast(`已${force ? "强制结束" : "关闭"} ${killing.name}`); }
+    else {
+      $("#killLeft").textContent = force
+        ? `还有 ${left} 个进程结束不了（可能需要管理员权限）`
+        : `还有 ${left} 个进程没关：它可能正在弹窗问你要不要保存，或者是没有窗口的后台程序。需要的话可以点「强制结束」。`;
+      $("#killLeft").style.display = "";
+    }
+  } catch (err) { toast(err.message); }
+  btns.forEach(b => b.disabled = false);
+  pollRunning();
+}
+$("#killSoft").onclick = () => doKill(false);
+$("#killForce").onclick = () => doKill(true);
+$("#killCancel").onclick = () => $("#kill").close();
+
+// ---- 进程监视：每 3 秒查一次，页面在后台时暂停 ----
+// 桌面版缩到托盘时 app.py 会设置 __appHidden；开机自启（?bg=1）时一开始就是隐藏的
+window.__appHidden = new URLSearchParams(location.search).has("bg");
+window.onAppShow = () => pollRunning();
+async function pollRunning() {
+  if (document.visibilityState !== "visible" || window.__appHidden || !items.length) return;
+  try {
+    const r = await api("/api/running", {});
+    if (JSON.stringify(r) !== JSON.stringify(running)) {
+      running = r;
+      if (!document.querySelector("dialog[open]") && !menu.classList.contains("show") && !addingCat && renaming === null) render();
+    }
+  } catch {}
+}
+setInterval(pollRunning, 3000);
+document.addEventListener("visibilitychange", pollRunning);
+
+Promise.all([api("/api/items"), api("/api/cats")])
+  .then(([d, c]) => { items = d; catsList = c; render(); checkExists(); pollRunning(); })
+  .catch(e => toast("读取失败：" + e.message));
+</script>
+</body>
+</html>

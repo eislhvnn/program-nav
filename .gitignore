@@ -1,0 +1,14 @@
+# 个人数据：每台电脑各自的程序列表、分类、设置、日志、图标缓存，不进仓库
+programs.json
+categories.json
+settings.json
+app.log
+icons/
+
+# 运行缓存和生成的文件
+.webview/
+__pycache__/
+.venv/
+build/
+build.log
+*.part
