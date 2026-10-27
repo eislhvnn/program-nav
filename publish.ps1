@@ -20,14 +20,17 @@ Step '打包（约 1 分钟）'
 if ($LASTEXITCODE) { Fail '打包失败，看上面的输出' }
 $setup = "build\installer\程序导航-安装程序-$ver.exe"
 if (-not (Test-Path $setup)) { Fail "找不到安装包 $setup" }
+# GitHub 会把附件文件名里的中文去掉（变成 -.-1.0.5.exe），所以上传一份英文名的
+$asset = "build\installer\ProgramNav-Setup-$ver.exe"
+Copy-Item $setup $asset -Force
 
 Step '上传到 GitHub'
 # 更新说明：上次发布以来的提交标题；第一次发布就用最近一次提交
 $prev = git describe --tags --abbrev=0 2>$null
 $notes = if ($prev) { git log "$prev..HEAD" --format='- %s' } else { git log -1 --format='- %s' }
 $notesFile = Join-Path $env:TEMP "program-nav-notes.txt"
-Set-Content $notesFile ($notes -join "`n") -Encoding UTF8
-gh release create $tag $setup --title "程序导航 $ver" --notes-file $notesFile --target (git rev-parse HEAD)
+[IO.File]::WriteAllText($notesFile, ($notes -join "`n"), (New-Object Text.UTF8Encoding $false))  # 不带 BOM
+gh release create $tag "$asset#程序导航-安装程序-$ver.exe" --title "程序导航 $ver" --notes-file $notesFile --target (git rev-parse HEAD)
 $ok = $LASTEXITCODE
 Remove-Item $notesFile -ErrorAction SilentlyContinue
 if ($ok) { Fail '创建 Release 失败' }
