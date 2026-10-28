@@ -35,6 +35,16 @@ aside { border-right: 1px solid var(--line); padding: 20px 12px 12px; position: 
 .side-foot.has-new .new { display: inline-block; }
 .set-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .set-row span { color: var(--muted); }
+.set-sec { font-size: 12px; color: var(--muted); letter-spacing: 1px; margin: 18px 0 2px; }
+.hk-ctl { display: flex; gap: 6px; align-items: center; }
+.hk { font: 12px var(--mono); padding: 5px 12px; border-radius: 7px; border: 1px solid var(--line); background: var(--bg);
+  color: var(--ink); min-width: 120px; }
+.hk:hover { border-color: var(--accent); }
+.hk.rec { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.hk.bad { border-color: var(--danger); color: var(--danger); }
+.hk-x { border: 0; background: none; color: var(--muted); padding: 2px 6px; border-radius: 5px; }
+.hk-x:hover { background: var(--line); color: var(--danger); }
+.hk-tip { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.7; }
 .upd { margin-top: 16px; padding: 14px; border-radius: 10px; background: var(--bg); line-height: 1.8; }
 .upd pre { white-space: pre-wrap; font: 12px/1.6 inherit; color: var(--muted); margin: 6px 0 0; max-height: 160px; overflow-y: auto; }
 .upd .bar-track { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin: 8px 0; }
@@ -112,6 +122,25 @@ main.compact h2 { margin: 16px 0 6px; }
 @keyframes ping { from { transform: scale(.8); opacity: .7; } to { transform: scale(2); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .run::after { animation: none; display: none; } }
 .cat.run-cat span:first-child { color: #16a34a; }
+
+/* 窗口预览：导航里的程序打开的窗口，单击切换过去 */
+.wins { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+.win { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; cursor: pointer;
+  box-shadow: var(--shadow); user-select: none; transition: transform .2s ease, border-color .2s ease; min-width: 0; }
+.win:hover { transform: translateY(-3px); border-color: var(--accent); }
+.win .shot { position: relative; aspect-ratio: 16 / 10; background: var(--bg); display: grid; place-items: center; }
+.win .shot .icon { width: 48px; height: 48px; font-size: 20px; }
+.win .shot img.sh { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: var(--bg); }
+.win.is-min .shot img.sh { opacity: .55; }
+.win .min-tag { position: absolute; left: 8px; bottom: 8px; font-size: 11px; padding: 1px 8px; border-radius: 99px;
+  background: var(--panel); color: var(--muted); border: 1px solid var(--line); }
+.win .cap { display: flex; gap: 10px; align-items: center; padding: 9px 12px; border-top: 1px solid var(--line); }
+.win .cap .icon { width: 26px; height: 26px; font-size: 12px; border-radius: 7px; }
+.win .cap .icon.img img { width: 22px; height: 22px; }
+.win .cap div { min-width: 0; flex: 1; }
+.win .cap b { display: block; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.win .cap small { display: block; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.win .tb-tag { flex: none; font-size: 11px; color: var(--warn); }
 .cat-sec { margin-top: 10px; padding-top: 12px; border-top: 1px dashed var(--line); }
 .cat-label { font-size: 11px; color: var(--muted); padding: 0 10px 6px; letter-spacing: 1px; }
 .cat-hint { font-size: 12px; color: var(--muted); padding: 0 10px 10px; line-height: 1.6; }
@@ -362,7 +391,10 @@ dialog.wide { width: min(780px, 94vw); }
     <h3>设置</h3>
     <div class="set-row"><b>当前版本</b><span id="setVer"></span></div>
     <div class="set-row"><b>更新来源</b><span id="setRepo" style="font:12px var(--mono)"></span></div>
-    <div class="upd" id="updBox"></div>
+    <div class="set-sec">快捷键</div>
+    <div id="hkBox"></div>
+    <div class="set-sec">更新</div>
+    <div class="upd" id="updBox" style="margin-top:8px"></div>
     <div class="foot">
       <button type="button" class="btn" id="setClose">关闭</button>
     </div>
@@ -374,8 +406,8 @@ dialog.wide { width: min(780px, 94vw); }
 
 <script>
 const $ = s => document.querySelector(s);
-let items = [], exists = {}, icons = {}, running = {}, curCat = "全部", editing = null, scanned = [];
-const RUN_CAT = "● 运行中";
+let items = [], exists = {}, icons = {}, running = {}, wins = [], curCat = "全部", editing = null, scanned = [];
+const RUN_CAT = "● 运行中", WIN_CAT = "▦ 窗口预览";
 const runDot = i => running[i.id] ? `<i class="run" title="运行中${running[i.id] > 1 ? `（${running[i.id]} 个进程）` : ""}"></i>` : "";
 // 图标优先级：自己设置的 > 从文件读到的 > 彩色首字
 const iconInner = i => i.icon
@@ -405,7 +437,7 @@ const save = () => api("/api/items", items).catch(e => toast("保存失败：" +
 
 // ---- 分类：自己建的（catsList，空的也保留）+ 程序上填过但不在列表里的 ----
 let catsList = [], addingCat = false, renaming = null;
-const RESERVED = ["全部", "★ 收藏", "● 运行中"];
+const RESERVED = ["全部", "★ 收藏", "● 运行中", "▦ 窗口预览"];
 const saveCats = () => api("/api/cats", catsList).catch(e => toast("保存失败：" + e.message));
 const allCats = () => {
   const used = [...new Set(items.map(catOf).filter(Boolean))].filter(c => !catsList.includes(c));
@@ -427,7 +459,7 @@ function render() {
   const names = allCats();
   $("#catList").innerHTML = names.map(c => `<option value="${esc(c)}">`).join("");
   const runN = items.filter(i => running[i.id]).length;
-  const fixed = [["全部", items.length], [RUN_CAT, runN], ...(favN ? [["★ 收藏", favN]] : [])];
+  const fixed = [["全部", items.length], [RUN_CAT, runN], [WIN_CAT, wins.length], ...(favN ? [["★ 收藏", favN]] : [])];
   if (![...fixed.map(([c]) => c), ...names].includes(curCat)) curCat = "全部";
   const catBtn = ([c, n], mine) => renaming === c
     ? `<input class="cat-input" id="catInput" value="${esc(c)}">`
@@ -454,6 +486,7 @@ function render() {
     $("#list").innerHTML = `<div class="empty">还没有内容。<br>点「＋ 添加」放入你的程序或脚本，或者「从开始菜单导入」一次性导入已安装的软件。</div>`;
     return;
   }
+  if (curCat === WIN_CAT) return renderWins(ql);
   if (!list.length && curCat === RUN_CAT && !q) {
     $("#list").innerHTML = `<div class="empty">导航里的程序目前都没有在运行</div>`;
     return;
@@ -522,6 +555,37 @@ function render() {
       + (inCat && !list.length ? `<p class="empty-sm">「${esc(curCat)}」还是空的，点上面的 ＋ 从全部程序里挑几个加进来</p>` : "");
 }
 
+// ---- 窗口预览：缩略图由后台截取，最小化的窗口显示最小化之前的画面 ----
+let shotT = Date.now();
+const shotUrl = h => `/api/thumb/${h}?t=${shotT}`;
+function renderWins(ql) {
+  $("main").classList.remove("compact", "nav");
+  const byId = Object.fromEntries(items.map(i => [i.id, i]));
+  const ws = wins.filter(x => byId[x.id] &&
+    (!ql || [byId[x.id].name, x.title, byId[x.id].note].some(v => (v || "").toLowerCase().includes(ql))));
+  $("#list").innerHTML = ws.length ? `<div class="wins">${ws.map(x => { const it = byId[x.id]; return `
+    <div class="win ${x.min ? "is-min" : ""}" data-id="${it.id}" data-hwnd="${x.hwnd}"
+         title="${esc(it.name)}\n${esc(x.title)}\n\n单击切换到这个窗口 · 右键更多">
+      <div class="shot">${iconInner(it)}
+        <img class="sh" data-h="${x.hwnd}" src="${shotUrl(x.hwnd)}" alt=""
+             onerror="this.style.visibility='hidden'" onload="this.style.visibility=''">
+        ${x.min ? `<span class="min-tag">已最小化</span>` : ""}</div>
+      <div class="cap">${iconInner(it)}<div><b>${esc(it.name)}</b><small>${esc(x.title)}</small></div>
+        ${it.hideTaskbar ? `<span class="tb-tag" title="任务栏上不显示这个程序，在这里切换">任务栏已隐藏</span>` : ""}</div>
+    </div>`; }).join("")}</div>`
+    : `<div class="empty">${ql ? `没有匹配「${esc(ql)}」的窗口` : "导航里的程序目前没有打开的窗口"}</div>`;
+}
+// 停在预览页时每隔几秒刷新截图：先在后台加载好再换上，画面不会闪
+setInterval(() => {
+  if (curCat !== WIN_CAT || document.visibilityState !== "visible" || window.__appHidden) return;
+  shotT = Date.now();
+  document.querySelectorAll(".win:not(.is-min) img.sh").forEach(img => {
+    const n = new Image();
+    n.onload = () => { img.src = n.src; img.style.visibility = ""; };
+    n.src = shotUrl(img.dataset.h);
+  });
+}, 2500);
+
 // 没写备注时，用文件类型 + 所在文件夹当介绍
 const TYPES = { exe: "程序", py: "Python 脚本", pyw: "Python 脚本", bat: "批处理", cmd: "批处理", ps1: "PowerShell 脚本",
   ahk: "AutoHotkey 脚本", vbs: "VBS 脚本", jar: "Java 程序", lnk: "快捷方式", msc: "系统工具" };
@@ -554,6 +618,7 @@ $("#list").addEventListener("contextmenu", e => {
   const it = items.find(i => i.id === el.dataset.id);
   menu.innerHTML = `<div class="mhead" title="${esc(it.path)}">${esc(it.path)}</div>` +
     [["copy", "复制路径"], ["folder", "打开位置"], ["run", "运行"], ["fav", it.fav ? "取消收藏" : "收藏"], ["edit", "编辑"],
+     ["taskbar", it.hideTaskbar ? "恢复任务栏按钮" : "隐藏任务栏按钮"],
      ...(catOf(it) ? [["uncat", `移出「${esc(catOf(it))}」`]] : []),
      ...(running[it.id] ? [["kill", `<span style="color:var(--danger)">结束进程${running[it.id] > 1 ? `（${running[it.id]} 个）` : ""}</span>`]] : [])]
       .map(([a, t]) => `<button data-act="${a}" data-id="${it.id}">${t}</button>`).join("");
@@ -605,7 +670,7 @@ addEventListener("blur", hideMenu);
 
 $("#cats").onclick = e => {
   if (e.target.closest("#catAdd")) { addingCat = true; renaming = null; render(); return; }
-  const b = e.target.closest(".cat"); if (b) { curCat = b.dataset.cat; render(); }
+  const b = e.target.closest(".cat"); if (b) { curCat = b.dataset.cat; render(); if (curCat === WIN_CAT) pollRunning(); }
 };
 $("#cats").addEventListener("keydown", e => {
   if (e.target.id !== "catInput") return;
@@ -701,6 +766,8 @@ $("#list").addEventListener("dblclick", e => {
   if (el) { getSelection()?.removeAllRanges(); doAct("run", el.dataset.id); }
 });
 $("#list").onclick = e => {
+  const win = e.target.closest(".win");
+  if (win) return api("/api/activate", { hwnd: +win.dataset.hwnd }).catch(err => { toast(err.message); pollRunning(); });
   const el = e.target.closest("[data-act]");
   if (el?.dataset.act === "pick") return openPick();
   if (el && el.dataset.id) doAct(el.dataset.act, el.dataset.id);
@@ -715,6 +782,11 @@ async function doAct(act, id) {
       case "fav": it.fav = !it.fav; save(); render(); break;
       case "edit": openEdit(it); break;
       case "kill": openKill(it); break;
+      case "taskbar":
+        it.hideTaskbar = !it.hideTaskbar; render();
+        await save(); await api("/api/taskbar/sync", {});
+        toast(it.hideTaskbar ? `${it.name} 不再占用任务栏，到「${WIN_CAT}」里切换它` : `已恢复 ${it.name} 的任务栏按钮`);
+        break;
       case "uncat": toast(`已移出「${catOf(it)}」`); it.category = ""; save(); render(); break;
     }
   } catch (err) { toast(err.message); }
@@ -733,7 +805,7 @@ function openEdit(it) {
   $("#delBtn").style.display = it ? "" : "none";
   f.path.value = it?.path || ""; f.name.value = it?.name || "";
   f.note.value = it?.note || "";
-  f.category.value = it?.category || (curCat !== "全部" && curCat !== "★ 收藏" ? curCat : "");
+  f.category.value = it?.category || (!RESERVED.includes(curCat) ? curCat : "");
   $("#edit").showModal();
   (it ? f.name : f.path).focus();
 }
@@ -973,9 +1045,9 @@ window.onAppShow = () => pollRunning();
 async function pollRunning() {
   if (document.visibilityState !== "visible" || window.__appHidden || !items.length) return;
   try {
-    const r = await api("/api/running", {});
-    if (JSON.stringify(r) !== JSON.stringify(running)) {
-      running = r;
+    const r = await api("/api/windows", {});
+    if (JSON.stringify(r.running) !== JSON.stringify(running) || JSON.stringify(r.windows) !== JSON.stringify(wins)) {
+      running = r.running; wins = r.windows;
       if (!document.querySelector("dialog[open]") && !menu.classList.contains("show") && !addingCat && renaming === null) render();
     }
   } catch {}
@@ -1028,10 +1100,79 @@ updBox.onclick = e => {
 $("#setBtn").onclick = () => {
   $("#setVer").textContent = ver.version ? "v" + ver.version : "未知";
   $("#setRepo").textContent = ver.repo;
+  loadHk();
   $("#settings").showModal();
   checkUpdate();
 };
 $("#setClose").onclick = () => $("#settings").close();
+
+// ── 设置里的快捷键：点按钮后按下想要的组合键 ──
+let hk = null, hkRec = null;
+function renderHk(err) {
+  if (err) return $("#hkBox").innerHTML = `<div class="hk-tip">${esc(err)}</div>`;
+  $("#hkBox").innerHTML = Object.entries(hk.actions).map(([a, label]) => {
+    const k = hk.hotkeys[a], bad = k && hk.status[a] === false;
+    return `<div class="set-row"><b>${esc(label)}</b><span class="hk-ctl">
+      <button type="button" class="hk ${hkRec === a ? "rec" : ""} ${bad ? "bad" : ""}" data-hk="${a}"
+        title="${bad ? "被其他程序占用了，换一个组合吧" : "点一下，然后按下新的组合键"}">${hkRec === a
+        ? "请按组合键…（Esc 取消）" : k ? esc(k.text) + (bad ? " ⚠" : "") : "未设置"}</button>
+      ${k ? `<button type="button" class="hk-x" data-hkclear="${a}" title="清除这个快捷键">✕</button>` : ""}</span></div>`;
+  }).join("") + `<div class="hk-tip">快捷键在任何程序里都能用。「呼出窗口预览」：直接打开到「${WIN_CAT}」，已经停在那里时再按一下就收起。</div>`;
+}
+async function loadHk() {
+  try { hk = await api("/api/hotkeys", {}); renderHk(); } catch (e) { renderHk(e.message); }
+}
+async function setHk(action, key) {
+  hkRec = null;
+  try { hk = await api("/api/hotkeys/set", { action, key }); }
+  catch (e) { toast(e.message); hk = await api("/api/hotkeys/pause", { on: false }).catch(() => hk); }
+  renderHk();
+  if (key && hk.status[action] === false) toast(`${key.text} 被其他程序占用了，换一个组合吧`);
+}
+function stopRec() {
+  if (!hkRec) return;
+  hkRec = null; renderHk();
+  api("/api/hotkeys/pause", { on: false }).catch(() => {});
+}
+$("#hkBox").onclick = e => {
+  const c = e.target.closest("[data-hkclear]");
+  if (c) return setHk(c.dataset.hkclear, null);
+  const b = e.target.closest("[data-hk]"); if (!b) return;
+  if (hkRec === b.dataset.hk) return stopRec();
+  hkRec = b.dataset.hk; renderHk();
+  api("/api/hotkeys/pause", { on: true }).catch(() => {});  // 先停用全部快捷键，免得按下去就触发
+};
+const keyName = e => {
+  const c = e.code;
+  if (/^Key[A-Z]$/.test(c)) return c.slice(3);
+  if (/^Digit\d$/.test(c)) return c.slice(5);
+  if (/^Numpad/.test(c)) return "Num" + c.slice(6);
+  if (/^F\d+$/.test(c)) return c;
+  if (/^Arrow/.test(c)) return c.slice(5);
+  if (c === "Space") return "Space";
+  return e.key.length === 1 ? e.key.toUpperCase() : e.key;
+};
+addEventListener("keydown", e => {
+  if (!hkRec) return;
+  e.preventDefault(); e.stopPropagation();
+  if (["Control", "Alt", "Shift", "Meta"].includes(e.key)) return;  // 还在按修饰键，等主键
+  if (e.key === "Escape") return stopRec();
+  const mods = (e.altKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.shiftKey ? 4 : 0) | (e.metaKey ? 8 : 0);
+  const fkey = e.keyCode >= 112 && e.keyCode <= 135;
+  if (!(mods & 11) && !fkey) return toast("要带上 Ctrl、Alt 或 Win，不然平时打字会误触");
+  const text = [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Win", keyName(e)]
+    .filter(Boolean).join("+");
+  setHk(hkRec, { mods, vk: e.keyCode, text });
+}, true);
+$("#settings").addEventListener("close", stopRec);
+
+// 托盘 / 快捷键让窗口直接打开到某一页（窗口进程调用）；已经在最前面并停在预览页时，再按一次就收起
+window.onAppGoto = (page, inFront) => {
+  if (page !== "preview") return;
+  if (inFront && curCat === WIN_CAT) return api("/api/app/hide", {}).catch(() => {});
+  curCat = WIN_CAT; render(); pollRunning();
+};
+if (new URLSearchParams(location.search).get("page") === "preview") curCat = WIN_CAT;
 api("/api/version", {}).then(v => {
   ver = v; $("#verTag").textContent = "v" + v.version;
   if (v.canUpdate) setTimeout(() => checkUpdate(true), 5000);  // 启动后悄悄查一次，有新版本时设置按钮上亮一个小红点

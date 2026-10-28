@@ -24,9 +24,11 @@ APP_ID = "ProgramNav.Desktop"
 ICON_FILE = BASE / "app.ico"
 EVENT_SHOW = "Local\\ProgramNav.Show"
 EVENT_QUIT = "Local\\ProgramNav.Quit"
+EVENT_PREVIEW = "Local\\ProgramNav.Preview"
 
 user32, k32 = ctypes.windll.user32, ctypes.windll.kernel32
 user32.IsIconic.argtypes = user32.IsWindowVisible.argtypes = [w.HWND]
+user32.GetForegroundWindow.restype = w.HWND
 user32.SendMessageW.argtypes = [w.HWND, w.UINT, w.WPARAM, w.LPARAM]
 user32.LoadImageW.restype = w.HANDLE
 user32.LoadImageW.argtypes = [w.HINSTANCE, w.LPCWSTR, w.UINT, ctypes.c_int, ctypes.c_int, w.UINT]
@@ -82,18 +84,28 @@ class Win:
             server.force_foreground(h)
 
     def listen(self):
-        """等 app.py 的通知：显示窗口 / 退出。事件名带上自己的 pid，旧窗口进程抢不走发给新窗口的通知"""
+        """等 app.py 的通知：显示窗口 / 退出 / 打开窗口预览。事件名带上自己的 pid，旧窗口进程抢不走发给新窗口的通知"""
         pid = os.getpid()
-        handles = (w.HANDLE * 2)(k32.CreateEventW(None, False, False, f"{EVENT_SHOW}.{pid}"),
-                                 k32.CreateEventW(None, False, False, f"{EVENT_QUIT}.{pid}"))
+        handles = (w.HANDLE * 3)(k32.CreateEventW(None, False, False, f"{EVENT_SHOW}.{pid}"),
+                                 k32.CreateEventW(None, False, False, f"{EVENT_QUIT}.{pid}"),
+                                 k32.CreateEventW(None, False, False, f"{EVENT_PREVIEW}.{pid}"))
         while True:
-            r = k32.WaitForMultipleObjects(2, handles, False, 0xFFFFFFFF)
+            r = k32.WaitForMultipleObjects(3, handles, False, 0xFFFFFFFF)
             if r == 0:
                 self.show()
             elif r == 1:
                 self.quitting = True
                 self.window.destroy()
                 return
+            elif r == 2:
+                h = self.hwnd()
+                in_front = h and user32.IsWindowVisible(h) and not user32.IsIconic(h) \
+                    and user32.GetForegroundWindow() == h
+                self.show()
+                try:  # 已经在最前面并且停在预览页 → 页面会把窗口收起来
+                    self.window.evaluate_js(f"window.onAppGoto && window.onAppGoto('preview', {str(bool(in_front)).lower()})")
+                except Exception:
+                    pass
 
     def watch_backend(self):
         """主进程（后台服务）没了就自己退出，免得留下一个连不上后台的孤儿窗口"""
@@ -144,8 +156,9 @@ def main():
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
     x, y, width, height = fit_bounds(server.load_settings().get("bounds") or {})
     app = Win()
+    page = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--page=")), "")
     app.window = webview.create_window(
-        TITLE, server.URL, width=width, height=height, x=x, y=y,
+        TITLE, server.URL + (f"?page={page}" if page.isalnum() else ""), width=width, height=height, x=x, y=y,
         min_size=(720, 480), background_color="#f6f8fa",
     )
     app.window.events.closing += app.on_closing

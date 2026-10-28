@@ -25,6 +25,8 @@ PAGE_FILE = RES / "index.html"
 URL = f"http://{HOST}:{PORT}/"
 on_app_show = None  # 桌面版（app.py）运行时设置：再次启动时用来把已有窗口调出来
 on_app_quit = None  # 同上：让正在运行的桌面版退出（升级/测试时用，代替托盘菜单的「退出」）
+on_app_hide = None  # 同上：收起窗口（按「呼出窗口预览」时已经停在预览页，就收起来）
+on_hotkeys = None  # 同上：app.py 的快捷键管理器，设置里改了快捷键后让它重新注册
 
 # 扫描开始菜单快捷方式，解析出真实路径
 SCAN_SCRIPT = r"""
@@ -788,6 +790,221 @@ def close_item(item, force):
     return len(left)
 
 
+# 窗口预览 + 隐藏任务栏按钮：都只管导航里的程序的窗口
+_win_api = None
+_known_windows = set()  # 列出来过的窗口，截图 / 切换只认这些，别的窗口不碰
+_thumbs = {}  # 窗口 → 最后一张截图；最小化以后截不到画面，就给这张
+_tb_lock = threading.Lock()
+_tb_hidden = set()  # 被我们去掉任务栏按钮的窗口；取消隐藏或退出程序时要加回去
+
+
+def win_api():
+    global _win_api
+    if _win_api is None:
+        import ctypes
+        from ctypes import wintypes as w
+
+        user32, gdi32, dwm = ctypes.windll.user32, ctypes.windll.gdi32, ctypes.windll.dwmapi
+        proto = ctypes.WINFUNCTYPE(w.BOOL, w.HWND, w.LPARAM)
+        user32.EnumWindows.argtypes = [proto, w.LPARAM]
+        user32.GetWindowThreadProcessId.argtypes = [w.HWND, ctypes.POINTER(w.DWORD)]
+        for fn in ("IsWindowVisible", "IsIconic", "IsWindow", "GetWindowTextLengthW"):
+            getattr(user32, fn).argtypes = [w.HWND]
+        user32.GetWindow.argtypes = [w.HWND, w.UINT]
+        user32.GetWindow.restype = w.HWND
+        user32.GetWindowLongW.argtypes = [w.HWND, ctypes.c_int]
+        user32.GetWindowTextW.argtypes = [w.HWND, w.LPWSTR, ctypes.c_int]
+        user32.GetWindowRect.argtypes = [w.HWND, ctypes.POINTER(w.RECT)]
+        user32.GetDC.restype = ctypes.c_void_p
+        user32.GetDC.argtypes = [ctypes.c_void_p]
+        user32.ReleaseDC.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        user32.PrintWindow.argtypes = [w.HWND, ctypes.c_void_p, w.UINT]
+        user32.SetThreadDpiAwarenessContext.argtypes = [ctypes.c_void_p]
+        user32.SetThreadDpiAwarenessContext.restype = ctypes.c_void_p
+        gdi32.CreateCompatibleDC.argtypes = [ctypes.c_void_p]
+        gdi32.CreateCompatibleDC.restype = ctypes.c_void_p
+        gdi32.CreateCompatibleBitmap.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+        gdi32.CreateCompatibleBitmap.restype = ctypes.c_void_p
+        gdi32.SelectObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        gdi32.SelectObject.restype = ctypes.c_void_p
+        gdi32.GetDIBits.argtypes = [ctypes.c_void_p, ctypes.c_void_p, w.UINT, w.UINT,
+                                    ctypes.c_void_p, ctypes.c_void_p, w.UINT]
+        gdi32.DeleteObject.argtypes = [ctypes.c_void_p]
+        gdi32.DeleteDC.argtypes = [ctypes.c_void_p]
+        dwm.DwmGetWindowAttribute.argtypes = [w.HWND, w.DWORD, ctypes.c_void_p, w.DWORD]
+        _win_api = (ctypes, w, user32, gdi32, dwm, proto)
+    return _win_api
+
+
+def item_windows(items, pids_of):
+    """导航里的程序的主窗口（和 Alt+Tab 里能看到的那些一样），按程序名排，位置固定好找。
+    pids_of = {条目 id: [pid]}；返回 [{id, hwnd, title, min}]"""
+    ctypes, w, user32, gdi32, dwm, proto = win_api()
+    owner = {pid: iid for iid, pids in pids_of.items() for pid in pids}
+    found = []
+
+    def cb(h, _):
+        pid = w.DWORD()
+        user32.GetWindowThreadProcessId(h, ctypes.byref(pid))
+        iid = owner.get(pid.value)
+        if not iid or not user32.IsWindowVisible(h) or user32.GetWindow(h, 4):  # GW_OWNER：对话框之类的附属窗口不算
+            return True
+        if user32.GetWindowLongW(h, -20) & 0x80:  # WS_EX_TOOLWINDOW：工具条、悬浮窗
+            return True
+        cloaked = w.DWORD()  # 被系统藏起来的（别的虚拟桌面、后台的商店应用）
+        if dwm.DwmGetWindowAttribute(h, 14, ctypes.byref(cloaked), 4) == 0 and cloaked.value:
+            return True
+        n = user32.GetWindowTextLengthW(h)
+        if n:
+            title = ctypes.create_unicode_buffer(n + 1)
+            user32.GetWindowTextW(h, title, n + 1)
+            found.append({"id": iid, "hwnd": h, "title": title.value, "min": bool(user32.IsIconic(h))})
+        return True
+
+    user32.EnumWindows(proto(cb), 0)
+    names = {it["id"]: it.get("name", "").lower() for it in items}
+    found.sort(key=lambda x: (names.get(x["id"], ""), x["id"], x["hwnd"]))
+    _known_windows.update(x["hwnd"] for x in found)
+    for h in [h for h in _known_windows if not user32.IsWindow(h)]:  # 关掉的窗口，连截图一起忘掉
+        _known_windows.discard(h)
+        _thumbs.pop(h, None)
+    return found
+
+
+def windows_status(items):
+    """一次查进程，同时给出 {条目 id: 进程数} 和窗口列表"""
+    index = proc_index(list_processes())
+    pids_of = {it["id"]: pids for it in items if (pids := matching_pids(it, index))}
+    return {"running": {k: len(v) for k, v in pids_of.items()}, "windows": item_windows(items, pids_of)}
+
+
+def capture_window(hwnd, box=480):
+    """给窗口截一张缩略图（JPEG）；最小化的窗口没有画面，给最小化之前截的那张（没有就 None）"""
+    import io
+
+    from PIL import Image
+
+    ctypes, w, user32, gdi32, dwm, proto = win_api()
+    if hwnd not in _known_windows or not user32.IsWindow(hwnd):
+        return None
+    if user32.IsIconic(hwnd):
+        return _thumbs.get(hwnd)
+    # 按真实像素量窗口大小：本程序没声明高分屏支持，不切换的话在缩放 150% 的屏幕上只能截到一部分
+    old_ctx = user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(-4))  # PER_MONITOR_AWARE_V2
+    try:
+        r = w.RECT()
+        user32.GetWindowRect(hwnd, ctypes.byref(r))
+        width, height = r.right - r.left, r.bottom - r.top
+        if width <= 0 or height <= 0:
+            return None
+        # 窗口四周有一圈看不见的拉伸边框，截出来是黑边；按 DWM 给的可见范围裁掉
+        fb = w.RECT()
+        if dwm.DwmGetWindowAttribute(hwnd, 9, ctypes.byref(fb), ctypes.sizeof(fb)) == 0:  # EXTENDED_FRAME_BOUNDS
+            crop = (max(fb.left - r.left, 0), max(fb.top - r.top, 0),
+                    min(fb.right - r.left, width), min(fb.bottom - r.top, height))
+        else:
+            crop = (0, 0, width, height)
+        screen = user32.GetDC(None)
+        mem = gdi32.CreateCompatibleDC(screen)
+        bmp = gdi32.CreateCompatibleBitmap(screen, width, height)
+        prev = gdi32.SelectObject(mem, bmp)
+        try:
+            ok = user32.PrintWindow(hwnd, mem, 2)  # PW_RENDERFULLCONTENT：浏览器这类硬件加速的窗口也能截到
+            gdi32.SelectObject(mem, prev)
+            buf = ctypes.create_string_buffer(width * height * 4)
+            bih = icon_api()[4](40, width, -height, 1, 32, 0)  # BITMAPINFOHEADER，自上而下
+            if not ok or not gdi32.GetDIBits(mem, bmp, 0, height, buf, ctypes.byref(bih), 0):
+                return None
+        finally:
+            gdi32.DeleteObject(bmp)
+            gdi32.DeleteDC(mem)
+            user32.ReleaseDC(None, screen)
+    finally:
+        user32.SetThreadDpiAwarenessContext(old_ctx)
+    img = Image.frombuffer("RGB", (width, height), buf, "raw", "BGRX", 0, 1)
+    if crop[2] > crop[0] and crop[3] > crop[1]:
+        img = img.crop(crop)
+    img.thumbnail((box, box), Image.BILINEAR)
+    out = io.BytesIO()
+    img.save(out, "JPEG", quality=72)
+    _thumbs[hwnd] = out.getvalue()
+    return _thumbs[hwnd]
+
+
+def activate_window(hwnd):
+    ctypes, w, user32, gdi32, dwm, proto = win_api()
+    if hwnd not in _known_windows or not user32.IsWindow(hwnd):
+        return False
+    force_foreground(hwnd)
+    return True
+
+
+def taskbar_tabs(hwnds, add):
+    """用系统的 ITaskbarList 接口去掉 / 加回窗口的任务栏按钮，窗口本身不受影响"""
+    import ctypes
+
+    if not hwnds:
+        return
+    ole32 = ctypes.windll.ole32
+    ole32.CoInitialize(None)  # 每个调用线程都要初始化一次，重复调用没关系
+    ole32.CLSIDFromString.argtypes = [ctypes.c_wchar_p, ctypes.c_void_p]
+    ole32.CoCreateInstance.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_ulong,
+                                       ctypes.c_void_p, ctypes.c_void_p]
+    clsid, iid = (ctypes.c_byte * 16)(), (ctypes.c_byte * 16)()
+    ole32.CLSIDFromString("{56FDF344-FD6D-11d0-958A-006097C9A090}", clsid)  # CLSID_TaskbarList
+    ole32.CLSIDFromString("{56FDF342-FD6D-11d0-958A-006097C9A090}", iid)  # IID_ITaskbarList
+    obj = ctypes.c_void_p()
+    if ole32.CoCreateInstance(clsid, None, 1, iid, ctypes.byref(obj)) or not obj:
+        return
+    vtbl = ctypes.cast(obj, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
+
+    def call(index, *args):
+        fn = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, *[ctypes.c_void_p] * len(args))(vtbl[index])
+        return fn(obj, *args)
+
+    try:
+        call(3)  # HrInit
+        for h in hwnds:
+            call(4 if add else 5, h)  # AddTab / DeleteTab
+    finally:
+        call(2)  # Release
+
+
+def taskbar_sync(items=None):
+    """让「隐藏任务栏按钮」的程序的窗口都没有按钮；取消了隐藏的，把按钮加回去。
+    有的程序重新显示窗口时会把按钮带回来，所以后台每隔几秒再做一次"""
+    global _tb_hidden
+    with _tb_lock:
+        items = [i for i in (load_items() if items is None else items) if i.get("hideTaskbar")]
+        if not items and not _tb_hidden:
+            return
+        want = {x["hwnd"] for x in windows_status(items)["windows"]} if items else set()
+        user32 = win_api()[2]
+        taskbar_tabs([h for h in _tb_hidden - want if user32.IsWindow(h)], True)
+        taskbar_tabs(want, False)
+        _tb_hidden = want
+
+
+def restore_taskbar():
+    """退出前把去掉的按钮都加回去，免得那些窗口最小化以后找不回来"""
+    global _tb_hidden
+    with _tb_lock:
+        taskbar_tabs(list(_tb_hidden), True)
+        _tb_hidden = set()
+
+
+def taskbar_keeper():
+    import time
+    import traceback
+
+    while True:
+        try:
+            taskbar_sync()
+        except Exception:
+            traceback.print_exc()
+        time.sleep(3)
+
+
 # 「打开位置」：资源管理器窗口是 explorer 自己的进程建的，Windows 防抢焦点会让它开在后面，
 # 所以打开后找到那个窗口，主动把它拉到最前面
 def explorer_windows():
@@ -899,6 +1116,24 @@ def update_settings(**changes):
     save_json(SETTINGS_FILE, {**load_settings(), **changes})
 
 
+# 全局快捷键：{动作: {mods, vk, text}}，mods 是 RegisterHotKey 的修饰键（Alt=1 Ctrl=2 Shift=4 Win=8）
+HOTKEY_ACTIONS = {"show": "呼出 / 收起主窗口", "preview": "呼出窗口预览"}
+DEFAULT_HOTKEYS = {"show": {"mods": 3, "vk": 0x20, "text": "Ctrl+Alt+Space"}}
+
+
+def load_hotkeys():
+    """设置里没写过的用默认值；写成 null 表示用户清除了这个快捷键"""
+    saved = load_settings().get("hotkeys")
+    saved = saved if isinstance(saved, dict) else {}
+    return {a: saved[a] if a in saved else DEFAULT_HOTKEYS.get(a) for a in HOTKEY_ACTIONS}
+
+
+def valid_hotkey(k):
+    return k is None or (isinstance(k, dict) and isinstance(k.get("mods"), int) and 0 <= k["mods"] <= 15
+                         and isinstance(k.get("vk"), int) and 0 < k["vk"] < 255
+                         and isinstance(k.get("text"), str) and 0 < len(k["text"]) <= 40)
+
+
 def load_items():
     return load_json(DATA_FILE)
 
@@ -983,7 +1218,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.host_ok():
             return
-        if self.path in ("/", "/index.html"):
+        if self.path.split("?")[0] in ("/", "/index.html"):  # 可能带 ?page=preview（直接打开到窗口预览）
             body = PAGE_FILE.read_bytes()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1010,6 +1245,17 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
             else:
                 self.send_json({"error": "not found"}, 404)
+        elif self.path.startswith("/api/thumb/"):
+            hwnd = self.path[len("/api/thumb/"):].split("?")[0]
+            body = capture_window(int(hwnd)) if hwnd.isdigit() else None
+            if not body:
+                return self.send_json({"error": "no image"}, 404)
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Cache-Control", "max-age=60")  # 地址里带时间戳，每次刷新都是新地址
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
         else:
             self.send_json({"error": "not found"}, 404)
 
@@ -1050,8 +1296,41 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json({"error": "not app mode"}, 404)
                 threading.Thread(target=on_app_quit, daemon=True).start()
                 self.send_json({"ok": True})
+            elif self.path == "/api/app/hide":
+                if on_app_hide:
+                    threading.Thread(target=on_app_hide, daemon=True).start()
+                self.send_json({"ok": True})
+            elif self.path.startswith("/api/hotkeys"):
+                if not on_hotkeys:
+                    return self.send_json({"error": "浏览器版没有全局快捷键，请用桌面版"}, 404)
+                hk = load_hotkeys()
+                if self.path == "/api/hotkeys/set":  # {action, key}，key 为 null 表示清除
+                    action, key = data.get("action"), data.get("key")
+                    if action not in HOTKEY_ACTIONS or not valid_hotkey(key):
+                        return self.send_json({"error": "快捷键不合法"}, 400)
+                    if key and any(a != action and k and (k["mods"], k["vk"]) == (key["mods"], key["vk"])
+                                   for a, k in hk.items()):
+                        on_hotkeys.apply(hk)
+                        return self.send_json({"error": f"{key['text']} 已经用在别的功能上了"}, 400)
+                    hk[action] = key
+                    update_settings(hotkeys=hk)
+                    status = on_hotkeys.apply(hk)
+                elif self.path == "/api/hotkeys/pause":  # 录新快捷键时先全部停用，免得按下去就触发
+                    status = on_hotkeys.apply({} if data.get("on") else hk)
+                else:
+                    status = dict(on_hotkeys.status)
+                self.send_json({"actions": HOTKEY_ACTIONS, "hotkeys": hk, "status": status})
             elif self.path == "/api/running":
                 self.send_json(running_counts(load_items()))
+            elif self.path == "/api/windows":
+                self.send_json(windows_status(load_items()))
+            elif self.path == "/api/activate":
+                if not activate_window(int(data.get("hwnd") or 0)):
+                    return self.send_json({"error": "这个窗口已经关掉了"}, 404)
+                self.send_json({"ok": True})
+            elif self.path == "/api/taskbar/sync":
+                taskbar_sync()
+                self.send_json({"ok": True})
             elif self.path == "/api/close":
                 item = next((i for i in load_items() if i["id"] == data.get("id")), None)
                 if not item:
@@ -1123,6 +1402,7 @@ def main():
         # 已经在运行了，直接打开页面
         webbrowser.open(URL)
         return
+    threading.Thread(target=taskbar_keeper, daemon=True).start()
     threading.Timer(0.5, lambda: webbrowser.open(URL)).start()
     server.serve_forever()
 

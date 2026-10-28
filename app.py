@@ -33,10 +33,10 @@ RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 RUN_NAME = "ProgramNav"
 # 「启动」文件夹里的快捷方式：安装版会放一个；托盘里取消开机启动时一起删掉
 STARTUP_LNK = Path(os.environ["APPDATA"]) / r"Microsoft\Windows\Start Menu\Programs\Startup" / "程序导航.lnk"
-HOTKEY_TEXT = "Ctrl+Alt+Space"
-MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, VK_SPACE, WM_HOTKEY = 0x1, 0x2, 0x4000, 0x20, 0x0312
-EVENT_SHOW = "Local\\ProgramNav.Show"  # 和 window.py 约定好的两个命名事件
+MOD_NOREPEAT, WM_HOTKEY, WM_APP = 0x4000, 0x0312, 0x8000
+EVENT_SHOW = "Local\\ProgramNav.Show"  # 和 window.py 约定好的命名事件
 EVENT_QUIT = "Local\\ProgramNav.Quit"
+EVENT_PREVIEW = "Local\\ProgramNav.Preview"
 
 user32, k32 = ctypes.windll.user32, ctypes.windll.kernel32
 for fn in ("IsIconic", "IsWindowVisible"):
@@ -50,6 +50,7 @@ k32.SetEvent.argtypes = k32.CloseHandle.argtypes = [w.HANDLE]
 k32.OpenProcess.restype = w.HANDLE
 k32.OpenProcess.argtypes = [w.DWORD, w.BOOL, w.DWORD]
 k32.TerminateProcess.argtypes = [w.HANDLE, w.UINT]
+user32.PostThreadMessageW.argtypes = [w.DWORD, w.UINT, w.WPARAM, w.LPARAM]
 
 
 def make_icon():
@@ -98,18 +99,20 @@ def signal(name, hwnd):
 class App:
     def __init__(self):
         self.tray = None
-        self.hotkey_ok = True
+        self.hotkeys = Hotkeys(self)
         self.spawned_at = 0.0
         self.proc = None
         self.seen = False
         self.lock = threading.Lock()
 
-    def show(self):
+    def show(self, page=None):
+        """page="preview" 时打开后直接停在「窗口预览」"""
         with self.lock:
             h = find_window()
             if h:
                 user32.AllowSetForegroundWindow(-1)  # 允许窗口进程把自己切到前台
-                signal(EVENT_SHOW, h)
+                if not (page and signal(EVENT_PREVIEW, h)):  # 旧版窗口进程没有这个事件，就只是显示
+                    signal(EVENT_SHOW, h)
                 return
             if self.proc and self.proc.poll() is None:
                 if not self.seen and time.time() - self.spawned_at < 15:
@@ -118,13 +121,13 @@ class App:
                     self.proc.wait(3)  # 窗口刚关、进程正在退出：等它退完再开新的
                 except subprocess.TimeoutExpired:
                     pass
-            self.spawn()
+            self.spawn(page)
 
-    def spawn(self):
+    def spawn(self, page=None):
         self.spawned_at, self.seen = time.time(), False
         user32.AllowSetForegroundWindow(-1)
         cmd = [sys.executable, "--window"] if FROZEN else [sys.executable, str(BASE / "window.py")]
-        self.proc = subprocess.Popen(cmd, cwd=BASE)
+        self.proc = subprocess.Popen(cmd + ([f"--page={page}"] if page else []), cwd=BASE)
 
         def watch():  # 记下窗口什么时候真的出来了
             while time.time() - self.spawned_at < 15 and self.proc.poll() is None:
@@ -140,14 +143,22 @@ class App:
         if h:
             user32.PostMessageW(h, 0x0010, 0, 0)  # 相当于点 ✕，窗口进程按设置决定退出还是隐藏
 
-    def toggle(self):
+    def in_front(self):
         h = find_window()
-        if h and user32.IsWindowVisible(h) and user32.GetForegroundWindow() == h and not user32.IsIconic(h):
-            self.hide()
-        else:
-            self.show()
+        return h and user32.IsWindowVisible(h) and user32.GetForegroundWindow() == h and not user32.IsIconic(h)
+
+    def toggle(self):
+        self.hide() if self.in_front() else self.show()
+
+    def toggle_preview(self):
+        # 窗口已经在最前面时也交给页面：不在预览页就切过去，已经在预览页才收起
+        self.show("preview")
 
     def quit(self):
+        try:
+            server.restore_taskbar()  # 把藏起来的任务栏按钮还回去
+        except Exception:
+            traceback.print_exc()
         h = find_window()
         if h and signal(EVENT_QUIT, h):
             for _ in range(30):  # 等窗口进程自己退出（会顺便保存窗口位置）
@@ -167,15 +178,64 @@ class App:
         self.tray.stop()
 
 
-def hotkey_loop(app):
-    if not user32.RegisterHotKey(None, 1, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, VK_SPACE):
-        app.hotkey_ok = False
-        print("快捷键注册失败，可能被其他程序占用了", HOTKEY_TEXT)
-        return
-    msg = w.MSG()
-    while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
-        if msg.message == WM_HOTKEY:
-            app.toggle()
+class Hotkeys:
+    """全局快捷键：在自己的线程里注册和接收（Windows 要求同一个线程）。
+    在设置里改了以后，发一条消息让这个线程按新设置重新注册"""
+
+    def __init__(self, app):
+        self.actions = {"show": app.toggle, "preview": app.toggle_preview}
+        self.tid = None
+        self.ids = {}  # 注册编号 → 动作名
+        self.status = {}  # 动作名 → 是否注册成功（失败多半是被别的程序占用了）
+        self.want = None
+        self.ready, self.done = threading.Event(), threading.Event()
+
+    def register(self, conf):
+        for i in self.ids:
+            user32.UnregisterHotKey(None, i)
+        self.ids, self.status = {}, {}
+        for n, name in enumerate(self.actions, 1):
+            k = conf.get(name)
+            if not k:
+                continue
+            ok = bool(user32.RegisterHotKey(None, n, k["mods"] | MOD_NOREPEAT, k["vk"]))
+            self.status[name] = ok
+            if ok:
+                self.ids[n] = name
+            else:
+                print("快捷键注册失败，可能被其他程序占用了", k["text"])
+
+    def loop(self):
+        self.tid = k32.GetCurrentThreadId()
+        self.register(server.load_hotkeys())
+        self.ready.set()
+        msg = w.MSG()
+        while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
+            if msg.message == WM_HOTKEY and msg.wParam in self.ids:
+                threading.Thread(target=logged(self.actions[self.ids[msg.wParam]]), daemon=True).start()
+            elif msg.message == WM_APP:
+                self.register(self.want)
+                self.done.set()
+
+    def apply(self, conf):
+        """按 conf 重新注册，返回 {动作名: 是否成功}。conf 为空 = 暂时全部停用（录新快捷键时用）"""
+        self.ready.wait(5)
+        self.want = conf
+        self.done.clear()
+        user32.PostThreadMessageW(self.tid, WM_APP, 0, 0)
+        self.done.wait(3)
+        if not conf:  # 万一录到一半窗口被关掉、页面没来得及恢复，20 秒后自己恢复
+            def resume(paused=conf):
+                if self.want is paused:
+                    self.apply(server.load_hotkeys())
+            threading.Timer(20, resume).start()
+        return dict(self.status)
+
+    def text(self, name):
+        k = server.load_hotkeys().get(name)
+        if not k:
+            return "未设置"
+        return k["text"] if self.status.get(name, True) else f"{k['text']}（被其他程序占用了）"
 
 
 def autostart_cmd():
@@ -244,12 +304,14 @@ def main():
     app = App()
     server.on_app_show = app.show
     server.on_app_quit = app.quit
+    server.on_app_hide = app.hide
+    server.on_hotkeys = app.hotkeys
     image = make_icon()
-    threading.Thread(target=hotkey_loop, args=(app,), daemon=True).start()
-    app.tray = pystray.Icon("ProgramNav", image, f"{TITLE}（{HOTKEY_TEXT}）", pystray.Menu(
+    threading.Thread(target=app.hotkeys.loop, daemon=True).start()
+    threading.Thread(target=server.taskbar_keeper, daemon=True).start()
+    app.tray = pystray.Icon("ProgramNav", image, TITLE, pystray.Menu(
         pystray.MenuItem("打开程序导航", logged(app.show), default=True),
-        pystray.MenuItem(lambda item: f"快捷键：{HOTKEY_TEXT}" if app.hotkey_ok else "快捷键被其他程序占用了",
-                         None, enabled=False),
+        pystray.MenuItem(lambda item: f"快捷键：{app.hotkeys.text('show')}", None, enabled=False),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("隐藏时释放内存（再打开要等 1~2 秒）",
                          logged(lambda: server.update_settings(releaseOnHide=not release_on_hide())),

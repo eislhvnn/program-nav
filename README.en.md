@@ -15,6 +15,9 @@ A program launcher for Windows. Keep your everyday apps, your own scripts and fr
   - Enter a path by hand
 - **Categories and favorites**: create your own categories (right-click to rename or delete) and star ★ the ones you use most
 - **Running status**: running programs show a green dot, and the "● Running" view lets you close or force-kill them in one click. Bat launchers and shortcuts are matched to the programs they actually start
+- **Window preview**: thumbnails of the open windows of your listed programs; click one to switch to it
+- **Hide taskbar buttons** per program, so they don't take up taskbar space; switch to them from the window preview. Buttons come back when Program Nav quits
+- **Custom hotkeys** for showing the main window and for jumping straight to the window preview, set in Settings
 - **Search** by name, path, note or category
 - **Three views**: Nav, Icons, Details
 - **Custom icons**: pick an image, drag one into the edit dialog, or paste it with Ctrl+V
@@ -32,6 +35,9 @@ A program launcher for Windows. Keep your everyday apps, your own scripts and fr
 | Action | How |
 | --- | --- |
 | Show / hide the window | `Ctrl + Alt + Space`, or click the tray icon |
+| Window preview | Click "▦ 窗口预览" (Window preview) on the left, or press your own hotkey |
+| Hide a taskbar button | Right-click a program → "隐藏任务栏按钮" (Hide taskbar button); do it again to restore |
+| Change hotkeys | "⚙ 设置" (Settings) → "快捷键" (Hotkeys): click a button, then press the new combination |
 | Add a program | Click "＋ 添加" (Add) and choose a method |
 | Run | Double-click a program |
 | More actions | Right-click a program: copy path, open location, favorite, edit, delete |
