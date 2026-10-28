@@ -238,7 +238,7 @@ def install_everything():
 
 
 # 程序内更新：从 GitHub 仓库最新的 Release 下载安装包 → 静默安装 → 安装程序自动把它重新打开
-# 仓库是私有的，借用这台电脑上 gh（或 Git 凭据管理器）已经登录的凭据，程序里不保存任何密钥
+# 仓库是公开的，匿名访问 GitHub 就行，不需要登录（匿名每个 IP 每小时 60 次，手动检查更新足够）
 GITHUB_REPO = "eislhvnn/program-nav"
 VERSION_FILE = RES / "version.txt"
 APP_VERSION = VERSION_FILE.read_text(encoding="utf-8").strip() if VERSION_FILE.exists() else "0"
@@ -249,36 +249,13 @@ class UpdateError(Exception):
     pass
 
 
-def github_token():
-    """先问 gh，再问 Git 凭据管理器；都没登录就返回 None（不会弹登录窗口）"""
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "never"}
-    for cmd, stdin in ((["gh", "auth", "token"], None),
-                       (["git", "credential", "fill"], "protocol=https\nhost=github.com\n\n")):
-        try:
-            r = subprocess.run(cmd, input=stdin, capture_output=True, text=True, timeout=10, env=env,
-                               creationflags=subprocess.CREATE_NO_WINDOW)
-        except (OSError, subprocess.TimeoutExpired):
-            continue
-        out = r.stdout.strip() if r.returncode == 0 else ""
-        if cmd[0] == "git":
-            out = dict(line.split("=", 1) for line in out.splitlines() if "=" in line).get("password", "")
-        if out:
-            return out
-    return None
-
-
-def github_get(path, token, accept="application/vnd.github+json", follow=True):
+def github_get(path):
     import urllib.request
 
-    class NoRedirect(urllib.request.HTTPRedirectHandler):
-        def redirect_request(self, *args, **kwargs):
-            return None  # 下载安装包时 GitHub 会跳转到存储服务器，那一步不能带上登录凭据，要自己处理
-
     req = urllib.request.Request("https://api.github.com" + path, headers={
-        "Authorization": f"Bearer {token}", "Accept": accept, "User-Agent": "program-nav",
+        "Accept": "application/vnd.github+json", "User-Agent": "program-nav",
         "X-GitHub-Api-Version": "2022-11-28"})
-    opener = urllib.request.build_opener() if follow else urllib.request.build_opener(NoRedirect)
-    return opener.open(req, timeout=15)
+    return urllib.request.urlopen(req, timeout=15)
 
 
 def version_key(v):
@@ -291,16 +268,13 @@ def latest_release():
     """返回 {latest, newer, notes, date, asset}；失败时抛 UpdateError，消息直接给用户看"""
     import urllib.error
 
-    token = github_token()
-    if not token:
-        raise UpdateError("这台电脑没有登录 GitHub，读不到私有仓库。请先在命令行运行 gh auth login 登录")
     try:
-        rel = json.load(github_get(f"/repos/{GITHUB_REPO}/releases/latest", token))
+        rel = json.load(github_get(f"/repos/{GITHUB_REPO}/releases/latest"))
     except urllib.error.HTTPError as e:
-        if e.code == 401:
-            raise UpdateError("GitHub 登录已失效，请在命令行运行 gh auth login 重新登录")
+        if e.code in (403, 429):
+            raise UpdateError("检查得太频繁，被 GitHub 暂时限制了，过一小时再试")
         if e.code == 404:
-            raise UpdateError("没有找到发布的版本：仓库里还没有 Release，或者当前登录的账号没有这个仓库的权限")
+            raise UpdateError("没有找到发布的版本：仓库里还没有 Release，或者仓库不是公开的")
         raise UpdateError(f"GitHub 返回错误 {e.code}")
     except (urllib.error.URLError, TimeoutError) as e:
         raise UpdateError(f"连不上 GitHub（{getattr(e, 'reason', e)}），请检查网络")
@@ -323,18 +297,9 @@ def run_update():
         asset = rel["asset"]
         if not rel["newer"]:
             return step("error", "已经是最新版本，不需要更新")
-        token = github_token()
-        try:  # 用登录凭据换到真正的下载地址（一个有时效的临时链接）
-            github_get(f"/repos/{GITHUB_REPO}/releases/assets/{asset['id']}", token,
-                       accept="application/octet-stream", follow=False)
-            raise UpdateError("没有拿到下载地址")
-        except urllib.error.HTTPError as e:
-            if e.code not in (301, 302, 303, 307, 308):
-                raise UpdateError(f"获取下载地址失败（{e.code}）")
-            url = e.headers["Location"]
         setup = Path(tempfile.gettempdir()) / asset["name"]
         try:
-            download_with_progress(url, setup, update_state)
+            download_with_progress(asset["browser_download_url"], setup, update_state)
         except InstallCancelled:
             return step("error", "已取消下载，下了一半的文件已删除")
         except TimeoutError:
