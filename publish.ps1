@@ -2,6 +2,8 @@
 # 程序里「设置 → 检查更新」就是从这里下载的。双击同目录的「发布.bat」运行
 # 发布前：改好 version.txt 里的版本号，提交并推送代码
 Set-Location $PSScriptRoot
+# 双击运行时控制台是 GBK，读 git 输出的中文会变乱码（更新说明就是这么坏的），统一按 UTF-8 读
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
 
 function Fail($msg) { Write-Host "`n✗ $msg" -ForegroundColor Red; exit 1 }
 function Step($msg) { Write-Host "`n▶ $msg" -ForegroundColor Cyan }
@@ -10,8 +12,12 @@ $ver = (Get-Content version.txt -Raw).Trim()
 $tag = "v$ver"
 Step "准备发布 $tag"
 if (git status --porcelain) { Fail '还有没提交的改动，先提交再发布' }
-gh release view $tag *> $null
-if ($LASTEXITCODE -eq 0) { Fail "$tag 已经发布过了，先把 version.txt 里的版本号改大" }
+$draft = gh release view $tag --json isDraft -q .isDraft 2>$null
+if ($draft -eq 'true') {
+  # 上次上传安装包时断了，留下一个没发布出去的草稿：删掉重来
+  Write-Host "  上次发布 $tag 没有完成（停在草稿），删掉重新发布"
+  gh release delete $tag -y
+} elseif ($LASTEXITCODE -eq 0) { Fail "$tag 已经发布过了，先把 version.txt 里的版本号改大" }
 git push
 if ($LASTEXITCODE) { Fail '推送代码失败' }
 
